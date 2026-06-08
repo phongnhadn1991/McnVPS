@@ -1,0 +1,15 @@
+#!/bin/bash
+
+######################################################################
+#           Auto Install & Optimize LEMP Stack on Ubuntu             #
+#                                                                    #
+#                      McnVPS - MCN Technical                        #
+#                       Website: https://mcnvps.net                  #
+#                                                                    #
+#              Please do not remove copyright. Thank!                #
+######################################################################
+
+wget "https://scripts.mcnvps.net/ubuntu/install_new"
+rm -rf install
+bash install_new
+rm -rf install_new

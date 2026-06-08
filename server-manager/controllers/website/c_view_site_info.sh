@@ -1,0 +1,60 @@
+#!/bin/bash
+
+##############################################################################################################
+#                             Auto Install & Optimize LEMP Stack on Ubuntu                                   #
+#                                                                                                            #
+#                                    Author: Sanvv - MCN Technical                                        #
+#                                        Website: https://mcnvps.net                                          #
+#                                                                                                            #
+#                                  Please do not remove copyright. Thank!                                    #
+#  Copying or using this content for any commercial purpose is strictly prohibited under all circumstances!  #
+##############################################################################################################
+
+view_website_details() {
+    local domain
+    run_prompt_or_exit prompt_select_website domain "website_menu"
+
+    local db_user
+    local db_pass
+    local db_name
+    local base_dir
+    local website_source
+    local php_version
+    local php_post_max_size
+    local php_upload_max_filesize
+    local php_memory_limit
+    local sftp_user
+    local sftp_pass
+
+    # shellcheck disable=SC1090
+    source "${WEB_DATA_DIR}/${domain}/.settings.conf" || {
+        msg "$ICON_EXIT Khong the load file cau hinh: ${domain}"
+        exit 1
+    }
+
+    printf "\n"
+    echo "${GREEN}Duoi day la thong tin Website${NC} ${RED}$domain${NC}"
+    echo "${GREEN}-----------------------------------${NC}"
+    echo "${GREEN}MySQL User               :${NC} ${RED}$db_user${NC}"
+    echo "${GREEN}MySQL Password           :${NC} ${RED}$db_pass${NC}"
+    echo "${GREEN}Database name            :${NC} ${RED}$db_name${NC}"
+    echo ""
+    echo "${GREEN}Web basedir              :${NC} ${RED}$base_dir${NC}"
+    echo "${GREEN}Website source           :${NC} ${RED}$website_source${NC}"
+    echo ""
+    echo "${GREEN}PHP Version              :${NC} ${RED}$php_version${NC}"
+    echo "${GREEN}PHP post max size        :${NC} ${RED}$php_post_max_size M${NC}"
+    echo "${GREEN}PHP upload max file size :${NC} ${RED}$php_upload_max_filesize M${NC}"
+    echo "${GREEN}PHP memory limit         :${NC} ${RED}$php_memory_limit M${NC}"
+
+    if [[ -n "$sftp_user" ]]; then
+        echo ""
+        echo "${GREEN}--- SFTP ---${NC}"
+        echo "${GREEN}SFTP Host                :${NC} ${RED}${IP_ADDRESS}${NC}"
+        echo "${GREEN}SFTP Port                :${NC} ${RED}22${NC}"
+        echo "${GREEN}SFTP User                :${NC} ${RED}$sftp_user${NC}"
+        echo "${GREEN}SFTP Password            :${NC} ${RED}$sftp_pass${NC}"
+        echo "${GREEN}SFTP Directory           :${NC} ${RED}/${domain}/public_html${NC}"
+    fi
+    press_enter_to_continue; return 0
+}

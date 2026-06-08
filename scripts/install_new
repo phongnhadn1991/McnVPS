@@ -1,0 +1,3031 @@
+#!/bin/bash
+
+######################################################################
+#           Auto Install & Optimize LEMP Stack on Ubuntu             #
+#                                                                    #
+#                Author: Sanvv - MCN Technical                    #
+#                  Website: https://mcnvps.net                        #
+#                                                                    #
+#              Please do not remove copyright. Thank!                #
+#  Please do not copy under any circumstance for commercial reason!  #
+######################################################################
+
+############################################
+# Variables
+############################################
+# shellcheck disable=SC2207
+
+export LC_ALL=C.UTF-8
+export DEBIAN_FRONTEND=noninteractive
+
+# Set Color
+RED='\033[0;31m'
+NC='\033[0m'
+
+SCRIPTS_VERSION="1.0"
+
+DIR=$(pwd)
+BUILD_DIR='/opt/mcnvps'
+source /etc/os-release
+
+CPU_ARCHITECTURE=$(uname -m)
+UBUNTU_OS_VERSION_LIST=("24.04")
+DEBIAN_OS_VERSION_LIST=("12 13")
+
+SCRIPT_LINK="https://scripts.hostvn.net/${ID}"
+if [ "$ID" == 'debian' ]; then
+    SCRIPT_LINK="https://scripts.hostvn.net/ubuntu"
+fi
+
+BASH_DIR="/var/mcnvps"
+EXT_LINK="https://scripts.hostvn.net"
+UPDATE_LINK="${SCRIPT_LINK}/update"
+MODULE_LINK="${SCRIPT_LINK}/modules"
+GET_VERSION_LINK="${UPDATE_LINK}/version"
+FILE_INFO="${BASH_DIR}/.mcnvps.conf"
+
+# Copyright
+#AUTHOR="MCNVPS.NET"
+FACEBOOK="https://www.facebook.com/groups/mcnvps.net"
+#HOME_PAGE='https://mcnvps.net'
+
+# Set Lang
+ROOT_ERR="Ban can dang nhap SSH voi user root."
+CANCEL_INSTALL="Huy cai dat..."
+WRONG_OS="Script hien tai chi ho tro Ubuntu và Debian."
+WRONG_VERSION="Script hien tai chi khong ho tro phien ban Ubuntu/Debian ban dang su dung."
+CPU_NOT_SUPPORT="Script hien tai chi ho tro CPU AMD64"
+SERVICE_EXISTS="May chu cua ban da cai dat mot trong nhung dich vu sau: Nginx, MariaDB, PHP, Docker. Vui long reinstall VPS truoc khi cai dat Script."
+RAM_NOT_ENOUGH="Canh bao: Dung luong RAM qua thap de cai Script. (It nhat 512MB)"
+#ENTER_OPTION="Nhap vao lua chon cua ban: "
+#SELECT_PHP="Hay lua chon phien ban PHP muon cai dat:"
+#WRONG_PHP_OPTION="Lua chon cua ban khong chinh xac, vui long chon lai."
+#LOGIN_NOTI1="Cam on ban da su dung dich vu cua ${AUTHOR}."
+#LOGIN_NOTI2="Neu can ho tro vui long truy cap ${FACEBOOK}"
+#LOGIN_NOTI3="Truoc khi dat cau hoi vui long xem Document: https://doc.mcnvps.net/"
+#LOGIN_NOTI4="De mo menu ban go lenh sau:  mcnvps"
+
+# Random Port
+RANDOM_ADMIN_PORT=$(shuf -i 49152-57343 -n 1)
+
+# Dir
+VAR_DIR="/var/www"
+DEFAULT_DIR_WEB="${VAR_DIR}/html"
+DEFAULT_DIR_TOOL="${VAR_DIR}/private"
+
+# Get info VPS
+CPU_CORES=$(grep -c ^processor /proc/cpuinfo 2>/dev/null)
+RAM_TOTAL=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
+SWAP_TOTAL=$(awk '/SwapFree/ {print $2}' /proc/meminfo)
+PHP_MEM=${RAM_TOTAL}+${SWAP_TOTAL}
+LOW_RAM='921600'
+
+CF_IPV4_URL="https://www.cloudflare.com/ips-v4"
+CF_IPV6_URL="https://www.cloudflare.com/ips-v6"
+CF_IPV4_FILE="${BUILD_DIR}/cloudflare_ipv4.txt"
+CF_IPV6_FILE="${BUILD_DIR}/cloudflare_ipv6.txt"
+
+############################################
+# Function
+############################################
+_write_log() {
+    LOGFILE="/var/log/mcnvps_install.log"
+    rm -f "$LOGFILE"
+    mkdir -p /var/log
+    touch "$LOGFILE"
+    chmod 600 "$LOGFILE"
+    exec > >(tee -a "$LOGFILE") 2>&1
+}
+
+_trim() {
+    local value=$1
+    echo "$value" | tr -d '[:space:]'
+}
+
+cd_dir() {
+    cd "$1" || return
+}
+
+get_main_ip() {
+    local ip_addr
+    ip_addr="$(ip route get to 8.8.8.8 2> /dev/null | grep -m 1 -o 'src [0-9.]*' | cut -d ' ' -f 2)"
+
+    if [ -z "$ip_addr" ]; then
+        ip_addr=$(_trim "$(curl "https://checkip.amazonaws.com")")
+    fi
+
+    echo "$ip_addr"
+}
+
+IPADDRESS=$(get_main_ip)
+
+detect_country() {
+    local country
+
+    apt-get install whois -y
+
+    country=$(whois "$IPADDRESS" | grep -i "^country" | head -n1 | awk '{print $2}')
+    VPS_COUNTRY="${country:-UNKNOWN}"
+}
+
+detect_ssh_port() {
+    if sshd_path=$(command -v sshd 2>/dev/null); then
+        if port_from_t=$($sshd_path -T 2>/dev/null | awk '/^port /{print $2; exit}'); then
+            if [[ -n "$port_from_t" ]]; then
+                printf '%s' "$port_from_t"
+                return 0
+            fi
+        fi
+    fi
+
+    if [[ -r /etc/ssh/sshd_config ]]; then
+        port_from_conf=$(awk '
+            BEGIN{port=""}
+            /^[[:space:]]*#/ { next }                 # bỏ comment
+            /^[[:space:]]*Port[[:space:]]+/ {
+                for(i=2;i<=NF;i++){
+                    if($i ~ /^[0-9]+$/){ print $i; exit }
+                }
+            }
+        ' /etc/ssh/sshd_config)
+        if [[ -n "$port_from_conf" ]]; then
+            printf '%s' "$port_from_conf"
+            return 0
+        fi
+    fi
+
+    if command -v ss >/dev/null 2>&1; then
+        port_from_ss=$(ss -tlnp 2>/dev/null | awk '/sshd/ {
+            for(i=1;i<=NF;i++){
+                if($i ~ /:[0-9]+$/){
+                    split($i,a,":"); print a[length(a)]; exit
+                }
+            }
+        }')
+        if [[ -n "$port_from_ss" ]]; then
+            printf '%s' "$port_from_ss"
+            return 0
+        fi
+    elif command -v netstat >/dev/null 2>&1; then
+        port_from_netstat=$(netstat -tlnp 2>/dev/null | awk '/sshd/ {
+            for(i=1;i<=NF;i++){
+                if($i ~ /:[0-9]+$/){
+                    split($i,a,":"); print a[length(a)]; exit
+                }
+            }
+        }')
+        if [[ -n "$port_from_netstat" ]]; then
+            printf '%s' "$port_from_netstat"
+            return 0
+        fi
+    fi
+
+    printf '22'
+    return 0
+}
+
+detect_country
+
+delete_file() {
+    local file=$1
+    if [ -e "$file" ]; then
+        rm -f "$file"
+    fi
+}
+
+delete_dir() {
+    local directory=$1
+
+    if [ -d "$directory" ]; then
+        rm -rf "$directory"
+    fi
+}
+
+gen_pass() {
+    PERL=$(which perl)
+    PASS_LEN=$($PERL -le 'print int(rand(6))+12')
+    START_LEN=$($PERL -le 'print int(rand(8))+1')
+    END_LEN=$((PASS_LEN - START_LEN))
+    NUMERIC_CHAR=$($PERL -le 'print int(rand(10))')
+    PASS_START=$($PERL -le "print map+(A..Z,a..z,0..9)[rand 62],0..$START_LEN")
+    PASS_END=$($PERL -le "print map+(A..Z,a..z,0..9)[rand 62],0..$END_LEN")
+    PASS=${PASS_START}${NUMERIC_CHAR}${PASS_END}
+    echo "$PASS"
+}
+
+random_string() {
+    STRING=$($(which perl) -le "print map+(A..Z,a..z,0..9)[rand 62],0..$1")
+    echo "$STRING"
+}
+
+valid_ip() {
+    local ip=$1
+    if [[ "$ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+        IFS='.' read -r a b c d <<<"$ip"
+        for octet in $a $b $c $d; do
+            [[ $octet -ge 0 && $octet -le 255 ]] || return 1
+        done
+        return 0
+    elif [[ "$ip" =~ ^([a-fA-F0-9:]+:+)+[a-fA-F0-9]+$ ]]; then
+        ping6 -c 1 -w 1 "$ip" >/dev/null 2>&1 && return 0
+        return 1
+    else
+        return 1
+    fi
+}
+
+set_timezone() {
+    if [[ -f "/etc/localtime" && -f "/usr/share/zoneinfo/Asia/Ho_Chi_Minh" ]]; then
+        delete_file /etc/localtime
+        ln -sf /usr/share/zoneinfo/Asia/Ho_Chi_Minh /etc/localtime
+    else
+        timedatectl set-timezone Asia/Ho_Chi_Minh
+    fi
+}
+
+extract_key_value() {
+    local input=$1
+    local key=$2
+    local strip_space=${3:-true}
+    local value
+
+    value=$(echo "$input" | grep -m1 "^${key}=" | cut -d'=' -f2-)
+
+    if [[ "$strip_space" == "true" ]]; then
+        value=$(_trim "$value")
+    fi
+
+    echo "$value"
+}
+
+run_or_exit() {
+    local desc="$1"
+    shift
+    echo "🔧 $desc..."
+    "$@"
+    local status=$?
+
+    if [[ $status -ne 0 ]]; then
+        # shellcheck disable=SC2059
+        printf "${RED}❌ Loi khi $desc${NC}\n"
+        # shellcheck disable=SC2059
+        printf "${RED}↳ Lenh loi: $*${NC}\n"
+        exit $status
+    fi
+}
+
+retry_run() {
+    local max_retry=$1
+    local delay=$2
+    local description=$3
+    shift 3
+    local count=1
+
+    while ((count <= max_retry)); do
+        echo "🔁 Attempt $count: $description"
+        if "$@"; then
+            return 0
+        fi
+        echo "⚠️ Failed (attempt $count). Retrying in ${delay}s..."
+        ((count++))
+        sleep "$delay"
+    done
+
+    echo "❌ Failed after $max_retry attempts: $description"
+    return 1
+}
+
+retry_with_capture() {
+    local __result_var=$1
+    local max_retry=$2
+    local delay=$3
+    local description=$4
+    shift 4
+
+    local count=1
+    local output
+
+    while ((count <= max_retry)); do
+        echo "🔁 Attempt $count: $description"
+
+        output="$("$@")" && {
+            printf -v "$__result_var" "%s" "$output"
+            return 0
+        }
+
+        echo "⚠️ Failed (attempt $count). Retrying in ${delay}s..."
+        ((count++))
+        sleep "$delay"
+    done
+
+    echo "❌ Failed after $max_retry attempts: $description"
+    return 1
+}
+
+wget_with_retry() {
+    local url=$1
+    local output=$2
+    local max_retry=${3:-5}
+    local delay=3
+
+    retry_run "$max_retry" "$delay" "Downloading $output" \
+        wget --timeout=30 --tries=3 --waitretry=2 --retry-connrefused -O "$output" "$url"
+}
+
+curl_get_with_retry() {
+    local url=$1
+    local max_retry=${2:-5}
+    local timeout=${3:-10}
+    local delay=3
+    local result=''
+
+    retry_with_capture result "$max_retry" "$delay" "Fetching $url" \
+        curl -fsSL --connect-timeout "$timeout" "$url" || return 1
+
+    echo "$result"
+}
+
+git_clone_with_retry() {
+    local repo_url=$1
+    local repo_dir=$2
+    local max_retry=${3:-5}
+    local delay=3
+
+    retry_run "$max_retry" "$delay" "Cloning $repo_url" bash -c "
+        rm -rf '$repo_dir' && \
+        git clone --recurse-submodules -j8 '$repo_url' '$repo_dir'
+    "
+}
+
+extract_file() {
+    local file=$1
+    if [ ! -e "$file" ]; then
+        # shellcheck disable=SC2059
+        printf "${RED}%s does not exists${NC}\n" "$file"
+        exit 1
+    fi
+
+    case "$file" in
+        *.tar)
+            tar -xvf "$file"
+            ;;
+        *.tar.gz|*.tgz)
+            tar -xvzf "$file"
+            ;;
+        *.tar.bz2|*.tbz2)
+            tar -xvjf "$file"
+            ;;
+        *.tar.xz|*.txz)
+            tar -xvJf "$file"
+            ;;
+        *.gz)
+            gunzip "$file"
+            ;;
+        *.bz2)
+            bunzip2 "$file"
+            ;;
+        *.xz)
+            unxz "$file"
+            ;;
+        *.zip)
+            unzip "$file"
+            ;;
+        *)
+            printf "${RED}❌ Khong ho tro dinh dang file: %s${NC}\n" "$file"
+            exit 1
+            ;;
+    esac
+}
+
+safe_apt_install() {
+    local description="$1"
+    shift
+    echo "📦 Dang cai: ${description}"
+    if ! apt-get install -y "$@"; then
+        printf "${RED}❌ Loi khi cai dat: %s${NC}\n" "${description}"
+        exit 1
+    fi
+}
+
+SQL_ROOT_PASS=$(gen_pass)
+SQL_ADMIN_PASS=$(gen_pass)
+
+############################################
+# Get Version
+############################################
+VERSION_RESPONSE=$(curl_get_with_retry "${GET_VERSION_LINK}" 5 10) || exit 1
+
+PHPMYADMIN_VERSION=$(extract_key_value "$VERSION_RESPONSE" 'phpmyadmin_version')
+MARIADB_VERSION=$(extract_key_value "$VERSION_RESPONSE" 'mariadb_version')
+PHP_LIST=($(extract_key_value "$VERSION_RESPONSE" 'php_list' 'false'))
+
+NGINX_VERSION=$(extract_key_value "$VERSION_RESPONSE" "nginx_version")
+
+FAIL2BAN_VER=$(extract_key_value "$VERSION_RESPONSE" "fail2ban_ver")
+
+NGINX_VERSION=$(extract_key_value "$VERSION_RESPONSE" "nginx_version")
+NGX_TLS_DYN_SIZE_VER=$(extract_key_value "$VERSION_RESPONSE" "ngx_http_tls_dyn_size_v")
+ROCKET_NGINX_VER=$(extract_key_value "$VERSION_RESPONSE" "rocket_nginx_ver")
+more_clear_headers_v=$(extract_key_value "$VERSION_RESPONSE" "more_clear_headers_v")
+ngx_http_geoip2_module_v=$(extract_key_value "$VERSION_RESPONSE" "ngx_http_geoip2_module_v")
+
+IG_BINARY_VERSION=$(extract_key_value "$VERSION_RESPONSE" "igbinary_version")
+PHP_MEMCACHED_VERSION=$(extract_key_value "$VERSION_RESPONSE" "php_memcached_version")
+PHP_REDIS_VERSION=$(extract_key_value "$VERSION_RESPONSE" "php_redis_version")
+COMPOSER_VERSION=$(extract_key_value "$VERSION_RESPONSE" "composer_version")
+
+WP_CLI_VERSION=$(extract_key_value "$VERSION_RESPONSE" "wp_cli_version")
+
+############################################
+# Set Information
+############################################
+
+ssh_login_notify() {
+    string=$(grep -rnw "/root/.bashrc" -e "MCNVPS SCRIPTS")
+    if [ -z "${string}" ]; then
+        cat >>"/root/.bashrc"<<END
+
+cat << 'EOF'
+ _   _  ___  ____ _______     ___   _              _
+| | | |/ _ \/ ___|_   _\ \   / / \ | |  _ __   ___| |_
+| |_| | | | \___ \ | |  \ \ / /|  \| | | '_ \ / _ \ __|
+|  _  | |_| |___) || |   \ V / | |\  |_| | | |  __/ |_
+|_| |_|\___/|____/ |_|    \_/  |_| \_(_)_| |_|\___|\__|
+
+        Chao mung ban den voi MCNVPS SCRIPTS
+
+Cam on ban da su dung MCNVPS SCRIPTS.
+Neu can ho tro vui long truy cap:
+🔗 ${FACEBOOK}
+
+De mo menu, ban go lenh sau:
+📟 mcnvps hoac mcn
+EOF
+
+alias mcn='/usr/bin/mcnvps'
+
+END
+    fi
+}
+
+add_alias_command() {
+    echo "alias mcn='/usr/bin/mcnvps'" >>"/root/.bashrc"
+}
+
+input_email() {
+    clear
+    while true; do
+        read -r -p "Nhap vao email cua ban (Duoc su dung khi dang ky SSL): " ADMIN_EMAIL
+        echo
+        #if [[ "${ADMIN_EMAIL}" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,4}$ ]]; then
+        if [[ "${ADMIN_EMAIL}" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(\.[a-zA-Z]{2,})*$ ]]; then
+            printf "\n"
+            echo "Email cua ban la: ${ADMIN_EMAIL}."
+            printf "\n"
+            break
+        else
+            # shellcheck disable=SC2059
+            printf "${RED}Email ban nhap khong chinh xac vui long nhap lai.${NC}\n"
+        fi
+    done
+}
+
+input_ip() {
+    echo "Nhap vao dia chi IP cua VPS. Bam Enter de script tu detect IP Public."
+    read -r -p "Nhap vao dia chi IP cua VPS: " IPADDRESS_NEW
+
+    if [ -n "${IPADDRESS_NEW}" ] && valid_ip "${IPADDRESS_NEW}"; then
+        IPADDRESS=${IPADDRESS_NEW}
+    else
+        # shellcheck disable=SC2059
+        printf "${RED}IP ban nhap khong chinh xac. Script se tu dong detect IP Public cua VPS.${NC}\n"
+    fi
+
+    if [ -z "${IPADDRESS}" ] || ! valid_ip "${IPADDRESS}"; then
+        # shellcheck disable=SC2059
+        printf "${RED}Cannot Detect IP Address.${NC}\n"
+        exit 1
+    fi
+}
+
+select_php_ver() {
+    local found_version=""
+
+    for ver in "${PHP_LIST[@]}"; do
+        if apt-cache search "${ver}-fpm" | grep -q "${ver}-fpm"; then
+            found_version="$ver"
+            break
+        fi
+    done
+
+    if [[ -z "$found_version" ]]; then
+        # shellcheck disable=SC2059
+        printf "${RED}❌ Khong tim thay goi PHP. Hay kiem tra lai PPA.${NC}\n"
+        exit 1
+    fi
+
+    PHP_VERSION=${found_version//php/}
+    PHP_MAJOR_VERSION=$(echo "${PHP_VERSION}" | cut -d'.' -f1)
+    # shellcheck disable=SC2034
+    PHP_MINOR_VERSION=$(echo "${PHP_VERSION}" | cut -d'.' -f2)
+    PHP_CONFIG_PATH="/etc/php/${PHP_VERSION}/fpm"
+    PHP_INI_PATH="${PHP_CONFIG_PATH}/conf.d"
+    PHP_POOL_PATH="${PHP_CONFIG_PATH}/pool.d"
+    PHP_CLI_PATH="/etc/php/${PHP_VERSION}/cli/conf.d"
+    PHP_MODULES_PATH="/etc/php/${PHP_VERSION}/mods-available"
+}
+
+############################################
+# Prepare before install
+############################################
+fixed_lock_frontend(){
+    killall apt apt-get
+    local lock_files=(
+        "/var/lib/dpkg/lock"
+        "/var/lib/dpkg/lock-frontend"
+        "/var/lib/apt/lists/lock"
+        "/var/cache/apt/archives/lock"
+    )
+
+     for lock in "${lock_files[@]}"; do
+        if [ -f "$lock" ]; then
+            local pid
+            pid=$(sudo fuser "$lock" 2>/dev/null)
+
+            if [ -n "$pid" ]; then
+                echo "[WARN] Lock file detected: $lock (PID: $pid)"
+                echo "        -> Killing process holding dpkg lock..."
+                sudo kill -9 "$pid" 2>/dev/null && echo "[OK] Process $pid killed."
+            else
+                echo "[WARN] Lock file exists but no active process found."
+            fi
+
+            echo "[ACTION] Removing lock file: $lock"
+            sudo rm -f "$lock"
+        fi
+    done
+
+    dpkg --configure -a >/dev/null 2>&1
+}
+
+fix_resolv_conf() {
+    local resolv_file='/etc/resolv.conf'
+
+    if [[ ! -w "$resolv_file" ]]; then
+        return 1
+    fi
+
+    if grep -qE 'nameserver[[:space:]]+(8\.8\.|1\.1\.)' "$resolv_file"; then
+        return 0
+    fi
+
+    sed -i '/^nameserver/d' "$resolv_file"
+
+    {
+        echo "nameserver 8.8.8.8"
+        echo "nameserver 1.1.1.1"
+    } >> "$resolv_file"
+}
+
+change_sources_list_location() {
+    local debian_sources_list="/etc/apt/sources.list"
+    local debian_mirrors_list="/etc/apt/mirrors/debian.list"
+    local ubuntu_sources_list="/etc/apt/sources.list.d/ubuntu.sources"
+
+    if [[ "$VPS_COUNTRY" != 'VN' ]]; then
+        return
+    fi
+
+    if [ -e "$debian_sources_list" ]; then
+        sed -i 's|http://deb.debian.org/debian|http://mirror.bizflycloud.vn/debian|g' "$debian_sources_list"
+        sed -i 's|https://deb.debian.org/debian|http://mirror.bizflycloud.vn/debian|g' "$debian_sources_list"
+    fi
+
+    if [ -e "$debian_mirrors_list" ]; then
+        sed -i 's|https://deb.debian.org/debian|http://mirror.bizflycloud.vn/debian|g' "$debian_mirrors_list"
+        sed -i 's|http://deb.debian.org/debian|http://mirror.bizflycloud.vn/debian|g' "$debian_mirrors_list"
+    fi
+
+    if [ -e "$ubuntu_sources_list" ]; then
+        sed -i 's|http://archive.ubuntu.com/ubuntu/|http://mirror.bizflycloud.vn/ubuntu/|g' "$ubuntu_sources_list"
+    fi
+
+    apt-get upadate
+}
+
+install_system_lib() {
+    safe_apt_install "cac goi thu vien can thiet cho he thong va build toolchain" \
+        build-essential gcc g++ make cmake diffutils perl tar zip unzip curl \
+        openssl quota logrotate rsyslog zstd git procps file e2fsprogs xfsprogs hostname libgeoip-dev \
+        iproute2 cron ca-certificates net-tools gettext media-types python3 debianutils python3-apt python3-systemd \
+        bc libmaxminddb-dev curl wget nano htop dos2unix ipcalc patch dnsutils libwww-perl bzip2 \
+        apache2-dev libjpeg-dev libpng-dev libtiff-dev libgif-dev libwebp-dev webp libbrotli-dev libssl-dev \
+        libmemcached-dev expect libnss3-tools libzstd-dev liblz4-dev sipcalc grepcidr rsync gnupg2 libclang-dev \
+        iftop iotop vnstat sshpass p7zip-full jq mmdb-bin
+
+    if [[ "$ID" == 'ubuntu' ]]; then
+        apt-get install -y unrar
+    elif [[ "$ID" == 'debian' ]]; then
+        if grep -q 'non-free' /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources 2>/dev/null; then
+            apt-get install -y unrar
+        fi
+    fi
+
+#    safe_apt_install "rust" rustup
+#    if [[ -n "$(which rustup)" ]]; then
+#        rustup default stable
+#    fi
+
+#    service supervisor stop
+#    systemctl disable supervisor
+
+    # Add redis repo
+#    if [[ "$ID" != 'debian' && "$VERSION_ID" != '12' ]]; then
+#        apt-get install lsb-release curl gpg -y
+#        curl -fsSL https://packages.redis.io/gpg | gpg --dearmor -o /usr/share/keyrings/redis-archive-keyring.gpg
+#        chmod 644 /usr/share/keyrings/redis-archive-keyring.gpg
+#        echo "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/redis.list
+#        apt-get update
+#    fi
+
+    # Add PHP Repo
+    if [ "${ID}" == 'ubuntu' ]; then
+        add-apt-repository -y ppa:ondrej/php
+
+    elif [ "$ID" == 'debian' ]; then
+        curl https://packages.sury.org/php/apt.gpg | gpg --dearmor | sudo tee /usr/share/keyrings/php-sury-keyring.gpg >/dev/null
+        echo "deb [signed-by=/usr/share/keyrings/php-sury-keyring.gpg] https://packages.sury.org/php/ $(lsb_release -cs) main" |
+            tee /etc/apt/sources.list.d/php.list
+    fi
+
+    apt-get update
+}
+
+fixed_lock_frontend
+fix_resolv_conf
+
+change_sources_list_location
+
+apt-get update
+apt-get upgrade -y
+apt-get autoremove -y
+
+set_timezone
+install_system_lib
+clear
+
+mkdir -p "$BASH_DIR" "${DEFAULT_DIR_WEB}" "${DEFAULT_DIR_TOOL}"
+clear
+echo "Ban dang cai dat Script McnVPS Version ${SCRIPTS_VERSION}."
+input_email
+input_ip
+select_php_ver
+
+if [[ "${PHP_VERSION}" == "5.6" ]]; then
+    IG_BINARY_VERSION="2.0.8"
+    PHP_MEMCACHED_VERSION="2.2.0"
+    PHP_REDIS_VERSION="4.3.0"
+    PHPMYADMIN_VERSION=$(extract_key_value "$VERSION_RESPONSE" "phpmyadmin4_version")
+fi
+
+if [[ "$PHP_MAJOR_VERSION" == '7' ]]; then
+    if [[ $PHP_MINOR_VERSION -lt 2 ]]; then
+        PHP_REDIS_VERSION="5.3.7"
+    elif [[ $PHP_MINOR_VERSION -lt 4 ]]; then
+        PHP_REDIS_VERSION="6.0.2"
+    fi
+fi
+
+case "$PHP_MAJOR_VERSION" in
+    8)
+        if (( PHP_MINOR_VERSION >= 1 )); then
+            CACHE_TOOL_VER=$(extract_key_value "$VERSION_RESPONSE" "cache_tool_ver")
+        else
+            CACHE_TOOL_VER="8.6.1"
+        fi
+        ;;
+    7)
+        if (( PHP_MINOR_VERSION >= 3 )); then
+            CACHE_TOOL_VER="7.1.0"
+        elif (( PHP_MINOR_VERSION == 2 )); then
+            CACHE_TOOL_VER="5.1.3"
+        else
+            CACHE_TOOL_VER=''
+        fi
+        ;;
+    *)
+        CACHE_TOOL_VER=''
+        ;;
+esac
+
+set_lib_link() {
+
+    #NGX_ACME_LINK="${MODULE_LINK}/ngx-acme/${NGINX_VERSION}/${ID}-${VERSION_ID}/ngx_http_acme_module.so"
+    if [ -n "$CACHE_TOOL_VER" ]; then
+        CACHE_TOOL_LINK="${MODULE_LINK}/cache-tool/${CACHE_TOOL_VER}/cachetool.phar"
+    fi
+
+    if [[ "$VPS_COUNTRY" == "VN" ]]; then
+        NGINX_LINK="${MODULE_LINK}/nginx-${NGINX_VERSION}.tar.gz"
+        HMNM_LINK="${MODULE_LINK}/headers-more-nginx-module-${more_clear_headers_v}.tar.gz"
+        GEOIP2_LINK="${MODULE_LINK}/ngx_http_geoip2_module-${ngx_http_geoip2_module_v}.tar.gz"
+        NGX_TLS_DYN_SIZE_LINK="${MODULE_LINK}/nginx__dynamic_tls_records_${NGX_TLS_DYN_SIZE_VER}%2B.patch"
+        ROCKET_NGINX_LINK="${MODULE_LINK}/rocket-nginx-v${ROCKET_NGINX_VER}.tar.gz"
+
+        IG_BINARY_LINK="${MODULE_LINK}/igbinary-${IG_BINARY_VERSION}.tgz"
+        PHP_MEMCACHED_LINK="${MODULE_LINK}/memcached-${PHP_MEMCACHED_VERSION}.tgz"
+        PHP_REDIS_LINK="${MODULE_LINK}/redis-${PHP_REDIS_VERSION}.tgz"
+        IONCUBE_LINK="${MODULE_LINK}/ioncube_loaders_lin_x86-64.tar.gz"
+
+        PHP_MYADMIN_LINK="${MODULE_LINK}/phpMyAdmin-${PHPMYADMIN_VERSION}-english.tar.gz"
+
+        MARIADB_REPO_LINK="${MODULE_LINK}/mariadb_repo_setup"
+
+        WP_CLI_LINK="${MODULE_LINK}/wp-cli-${WP_CLI_VERSION}.phar"
+        COMPOSER_LINK="${MODULE_LINK}/composer/${COMPOSER_VERSION}/composer.phar"
+
+        COUNTRY_ASN_LINK="${MODULE_LINK}/country_asn.mmdb"
+        FAIL2BAN_LINK="${MODULE_LINK}/fail2ban_${FAIL2BAN_VER}_all.deb"
+        RCLONE_LINK="${MODULE_LINK}/rclone/rclone-current-linux-amd64.zip"
+    else
+        NGINX_LINK="https://nginx.org/download/nginx-${NGINX_VERSION}.tar.gz"
+        HMNM_LINK="https://github.com/openresty/headers-more-nginx-module/archive/refs/tags/v${more_clear_headers_v}.tar.gz"
+        GEOIP2_LINK="https://github.com/leev/ngx_http_geoip2_module/archive/refs/tags/${ngx_http_geoip2_module_v}.tar.gz"
+        NGX_TLS_DYN_SIZE_LINK="https://raw.githubusercontent.com/nginx-modules/ngx_http_tls_dyn_size/refs/heads/master/nginx__dynamic_tls_records_${NGX_TLS_DYN_SIZE_VER}%2B.patch"
+        ROCKET_NGINX_LINK="https://github.com/SatelliteWP/rocket-nginx/archive/refs/tags/v${ROCKET_NGINX_VER}.tar.gz"
+
+        IG_BINARY_LINK="https://pecl.php.net/get/igbinary-${IG_BINARY_VERSION}.tgz"
+        PHP_MEMCACHED_LINK="https://pecl.php.net/get/memcached-${PHP_MEMCACHED_VERSION}.tgz"
+        PHP_REDIS_LINK="https://pecl.php.net/get/redis-${PHP_REDIS_VERSION}.tgz"
+        IONCUBE_LINK='https://downloads.ioncube.com/loader_downloads/ioncube_loaders_lin_x86-64.tar.gz'
+
+        PHP_MYADMIN_LINK="https://files.phpmyadmin.net/phpMyAdmin/${PHPMYADMIN_VERSION}/phpMyAdmin-${PHPMYADMIN_VERSION}-english.tar.gz"
+
+        MARIADB_REPO_LINK='https://r.mariadb.com/downloads/mariadb_repo_setup'
+
+        WP_CLI_LINK="https://github.com/wp-cli/wp-cli/releases/download/v${WP_CLI_VERSION}/wp-cli-${WP_CLI_VERSION}.phar"
+        COMPOSER_LINK="https://getcomposer.org/download/${COMPOSER_VERSION}/composer.phar"
+
+        COUNTRY_ASN_LINK="${MODULE_LINK}/country_asn.mmdb"
+        FAIL2BAN_LINK="https://launchpad.net/ubuntu/+archive/primary/+files/fail2ban_${FAIL2BAN_VER}_all.deb"
+        RCLONE_LINK="https://downloads.rclone.org/rclone-current-linux-amd64.zip"
+    fi
+}
+
+set_lib_link
+
+download_requirement_module() {
+    echo "📦 Dang tai cac thu vien can thiet"
+    delete_dir "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+
+    # Download Nginx and other dependencies
+    mkdir -p /etc/nginx/geo && cd_dir /etc/nginx/geo
+    wget_with_retry "$COUNTRY_ASN_LINK" "country_asn.mmdb" 5 || exit 1
+
+    cd_dir "${BUILD_DIR}"
+    wget_with_retry "$NGINX_LINK" "nginx-${NGINX_VERSION}.tar.gz" 5 || exit 1
+    run_or_exit "" extract_file "nginx-${NGINX_VERSION}.tar.gz" && delete_file "nginx-${NGINX_VERSION}.tar.gz"
+
+    wget_with_retry "$HMNM_LINK" "headers-more-nginx-module-${more_clear_headers_v}.tar.gz" 5 || exit 1
+    run_or_exit "" extract_file "headers-more-nginx-module-${more_clear_headers_v}.tar.gz" && delete_file "headers-more-nginx-module-${more_clear_headers_v}.tar.gz"
+
+    wget_with_retry "$GEOIP2_LINK" "ngx_http_geoip2_module-${ngx_http_geoip2_module_v}.tar.gz" 5 || exit 1
+    run_or_exit "" extract_file "ngx_http_geoip2_module-${ngx_http_geoip2_module_v}.tar.gz" && delete_file "ngx_http_geoip2_module-${ngx_http_geoip2_module_v}.tar.gz"
+
+    #wget_with_retry "$NGX_ACME_LINK" "ngx_http_acme_module.so" 5 || exit 1
+
+    if [ -d "${BUILD_DIR}/ngx_brotli" ]; then
+        delete_dir "${BUILD_DIR}/ngx_brotli"
+    fi
+
+    cd_dir "${BUILD_DIR}"
+
+    if [ "$VPS_COUNTRY" == 'VN' ]; then
+        wget_with_retry "${MODULE_LINK}/ngx_brotli.tar.gz" "ngx_brotli.tar.gz" 5 || exit 1
+        run_or_exit "" extract_file "ngx_brotli.tar.gz" && delete_file "ngx_brotli.tar.gz"
+    else
+        git_clone_with_retry "https://github.com/google/ngx_brotli" "ngx_brotli" 5 || exit 1
+    fi
+
+    cd_dir "${BUILD_DIR}/ngx_brotli/deps/brotli"
+    mkdir -p out && cd_dir out
+    cmake -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DCMAKE_C_FLAGS="-Ofast -m64 -march=native -mtune=native -flto -funroll-loops -ffunction-sections -fdata-sections -Wl,--gc-sections" -DCMAKE_INSTALL_PREFIX=./installed ..
+    cmake --build . --config Release --target brotlienc
+
+    cd_dir "${BUILD_DIR}"/nginx-"${NGINX_VERSION}"/
+    wget_with_retry "$NGX_TLS_DYN_SIZE_LINK" "nginx__dynamic_tls_records_${NGX_TLS_DYN_SIZE_VER}.patch" 5 || exit 1
+
+    # Download MariaDB repo setup script
+    cd_dir "${BUILD_DIR}"
+    wget_with_retry "$MARIADB_REPO_LINK" "mariadb_repo_setup" 5 || exit 1
+
+    if [[ ! -e 'mariadb_repo_setup' ]]; then
+        # shellcheck disable=SC2059
+        printf "${RED}Cannot download mariadb_repo_setup${NC}\n"
+        exit 1
+    fi
+
+    #echo "c4a0f3dade02c51a6a28ca3609a13d7a0f8910cccbb90935a2f218454d3a914a mariadb_repo_setup" | sha256sum -c -
+    chmod +x mariadb_repo_setup
+
+    # Download PHP extensions
+    mkdir -p /etc/php
+    delete_dir "/etc/php/ioncube"
+    delete_file "/etc/php/ioncube_loaders_lin_x86-64.tar.gz"
+    cd_dir /etc/php
+    wget_with_retry "$IONCUBE_LINK" "ioncube_loaders_lin_x86-64.tar.gz" 5 || exit 1
+    run_or_exit "" extract_file ioncube_loaders_lin_x86-64.tar.gz && delete_file ioncube_loaders_lin_x86-64.tar.gz
+
+    cd_dir "${BUILD_DIR}"
+    wget_with_retry "$IG_BINARY_LINK" "igbinary-${IG_BINARY_VERSION}.tgz" 5 || return 1
+    run_or_exit "" extract_file "igbinary-${IG_BINARY_VERSION}.tgz" && delete_file "igbinary-${IG_BINARY_VERSION}.tgz"
+
+    wget_with_retry "$PHP_MEMCACHED_LINK" "memcached-${PHP_MEMCACHED_VERSION}.tgz" 5 || return 1
+    run_or_exit "" extract_file "memcached-${PHP_MEMCACHED_VERSION}.tgz" && delete_file "memcached-${PHP_MEMCACHED_VERSION}.tgz"
+
+    wget_with_retry "$PHP_REDIS_LINK" "redis-${PHP_REDIS_VERSION}.tgz" 5 || return 1
+    run_or_exit "" extract_file "redis-${PHP_REDIS_VERSION}.tgz" && delete_file "redis-${PHP_REDIS_VERSION}.tgz"
+
+    if [ -n "$CACHE_TOOL_LINK" ]; then
+        wget_with_retry "$CACHE_TOOL_LINK" "cachetool${CACHE_TOOL_VER}" 5 || return 1
+    fi
+
+    # Download phpMyAdmin
+    if [ -d "${DEFAULT_DIR_TOOL}" ]; then
+        delete_dir "${DEFAULT_DIR_TOOL}"
+    fi
+    mkdir -p "${DEFAULT_DIR_TOOL}"
+    cd_dir "${DEFAULT_DIR_TOOL}"
+
+    wget_with_retry "$PHP_MYADMIN_LINK" "phpMyAdmin-${PHPMYADMIN_VERSION}-english.tar.gz" 5 || exit 1
+    run_or_exit "" extract_file "phpMyAdmin-${PHPMYADMIN_VERSION}-english.tar.gz" && delete_file "phpMyAdmin-${PHPMYADMIN_VERSION}-english.tar.gz"
+    mv phpMyAdmin-"${PHPMYADMIN_VERSION}"-english phpmyadmin
+
+    if [ ! -e "${DEFAULT_DIR_TOOL}/phpmyadmin/index.php" ]; then
+        # shellcheck disable=SC2059
+        printf "${RED}Cannot download phpMyAdmin${NC}\n"
+        exit 1
+    fi
+
+    cd_dir "$BUILD_DIR"
+    wget_with_retry "${EXT_LINK}/phpmyadmin.sql" "phpmyadmin.sql" 5 || exit 1
+
+    # Download Fail2Ban
+    cd_dir "$BUILD_DIR"
+    wget_with_retry "$FAIL2BAN_LINK" "fail2ban_${FAIL2BAN_VER}_all.deb" 5 || exit 1
+
+    # Download some cli tools
+    ### Download WP-CLI and Composer
+    wget_with_retry "$COMPOSER_LINK" "composer" 5 || exit 1
+    chmod +x composer && mv composer /usr/local/bin/composer
+
+    wget_with_retry "$WP_CLI_LINK" "wp" 5 || exit 1
+    chmod +x wp && mv wp /usr/local/bin/wp
+
+    ### Download acme.sh
+    delete_file "${BUILD_DIR}/acme.sh"
+    curl -o acme.sh https://get.acme.sh
+
+    if [ ! -e "${BUILD_DIR}/acme.sh" ]; then
+        echo "${RED}❌ Khong tai duoc acme.sh${NC}"
+        exit 1
+    fi
+
+    sh acme.sh email="${ADMIN_EMAIL}"
+
+    ### Download rclone
+    delete_file "${BUILD_DIR}/rclone.zip"
+    wget_with_retry "${RCLONE_LINK}" "rclone.zip" 5 || exit 1
+    run_or_exit "" extract_file "rclone.zip" && delete_file "rclone.zip"
+    cd rclone-* || exit 1
+    cp rclone /usr/bin/rclone.new
+    chmod 755 /usr/bin/rclone.new
+    chown root:root /usr/bin/rclone.new
+    mv /usr/bin/rclone.new /usr/bin/rclone
+
+    if ! [ -x "$(command -v mandb)" ]; then
+        echo 'mandb not found. The rclone man docs will not be installed.'
+    else
+        mkdir -p /usr/local/share/man/man1
+        cp rclone.1 /usr/local/share/man/man1/
+        mandb
+    fi
+
+    # Download CF IPs
+    cd_dir "$BUILD_DIR"
+    delete_file "$CF_IPV4_FILE"
+    delete_file "$CF_IPV6_FILE"
+    wget_with_retry "${CF_IPV4_URL}" "${CF_IPV4_FILE}" 5 || exit 1
+    wget_with_retry "${CF_IPV6_URL}" "${CF_IPV6_FILE}" 5 || exit 1
+
+    if [[ ! -s "$CF_IPV4_FILE" ]]; then
+        # shellcheck disable=SC2059
+        echo "${RED}❌ Khong tai duoc danh sach IPv4 tu Cloudflare${NC}"
+        exit 1
+    fi
+
+    if [[ ! -s "$CF_IPV6_FILE" ]]; then
+        # shellcheck disable=SC2059
+        echo "${RED}❌ Khong tai duoc danh sach IPv6 tu Cloudflare${NC}"
+        exit 1
+    fi
+
+    # Download wp-rocket nginx
+    cd_dir "$BUILD_DIR"
+    wget_with_retry "$ROCKET_NGINX_LINK" "rocket-nginx-${ROCKET_NGINX_VER}.tar.gz" 5 || exit 1
+    run_or_exit "" extract_file "rocket-nginx-${ROCKET_NGINX_VER}.tar.gz" && delete_file "rocket-nginx-${ROCKET_NGINX_VER}.tar.gz"
+
+    # Download menu
+    mkdir -p "${BASH_DIR}/data/websites"
+    mkdir -p "${BASH_DIR}/data/wp-cron"
+    mkdir -p "${BASH_DIR}/tools"
+    cd_dir "${BASH_DIR}"
+    delete_dir 'server-manager'
+
+    # Uu tien dung server-manager.zip local (upload cung voi install_new)
+    if [[ -f "${DIR}/server-manager.zip" ]]; then
+        cp "${DIR}/server-manager.zip" "${BASH_DIR}/server-manager.zip"
+    else
+        wget_with_retry "${SCRIPT_LINK}/server-manager.zip" "${BASH_DIR}/server-manager.zip" 5 || exit 1
+    fi
+
+    run_or_exit "" extract_file "server-manager.zip" && delete_file "server-manager.zip"
+    chmod +x server-manager/* server-manager/*/* server-manager/*/*/*
+    dos2unix server-manager/* server-manager/*/* server-manager/*/*/*
+
+    cp "$CF_IPV4_FILE" "${BASH_DIR}/data/cloudflare_ipv4.txt"
+    cp "$CF_IPV6_FILE" "${BASH_DIR}/data/cloudflare_ipv6.txt"
+
+    if [[ -n "$CACHE_TOOL_VER" && -e "${BUILD_DIR}/cachetool${CACHE_TOOL_VER}" ]]; then
+        chmod +x "${BUILD_DIR}/cachetool${CACHE_TOOL_VER}"
+        mv "${BUILD_DIR}/cachetool${CACHE_TOOL_VER}" "${BASH_DIR}/tools/cachetool${CACHE_TOOL_VER}"
+    fi
+}
+
+############################################
+# Install LEMP Stack
+############################################
+install_nginx() {
+    # ignore gcc-14 issues
+    export CFLAGS="${CFLAGS} -fpermissive"
+
+    safe_apt_install "cac thu vien can thiet de build Nginx" zlib1g-dev uuid-dev
+    apt autoremove -y
+
+    cd_dir "${BUILD_DIR}"/nginx-"${NGINX_VERSION}"/
+
+    run_or_exit "configure Nginx" ./configure \
+        "--user=nginx" \
+        "--group=nginx" \
+        "--prefix=/usr" \
+        "--sbin-path=/usr/sbin" \
+        "--conf-path=/etc/nginx/nginx.conf" \
+        "--pid-path=/var/run/nginx.pid" \
+        "--http-log-path=/var/log/nginx/access/access.log" \
+        "--error-log-path=/var/log/nginx/errors/error.log" \
+        "--without-mail_imap_module" \
+        "--without-mail_smtp_module" \
+        "--with-http_ssl_module" \
+        "--with-http_sub_module" \
+        "--with-http_realip_module" \
+        "--with-http_stub_status_module" \
+        "--with-http_gzip_static_module" \
+        "--with-http_dav_module" \
+        "--with-http_v2_module" \
+        "--with-http_v3_module" \
+        "--with-threads" \
+        "--with-file-aio" \
+        "--with-pcre-jit" \
+        "--with-http_geoip_module" \
+        "--add-module=../ngx_http_geoip2_module-${ngx_http_geoip2_module_v}" \
+        "--add-module=../headers-more-nginx-module-${more_clear_headers_v}" \
+        "--add-module=../ngx_brotli" \
+        "--with-cc-opt='-D FD_SETSIZE=32768'"
+
+    run_or_exit "Build Nginx" make -j"${CPU_CORES}"
+
+    patch -p1 <nginx__dynamic_tls_records_"${NGX_TLS_DYN_SIZE_VER}".patch
+
+    run_or_exit "Install Nginx" make install -j"${CPU_CORES}"
+
+    # shellcheck disable=SC2002
+    # shellcheck disable=SC2143
+    if [[ -z "$(cat /etc/passwd | grep nginx)" ]]; then
+        run_or_exit "Add Nginx user" adduser --system --home /nonexistent --shell /bin/false --no-create-home \
+            --disabled-login --disabled-password --gecos "nginx user" --group nginx
+    fi
+
+    cat >"/etc/systemd/system/nginx.service" <<EOnginx_service
+[Unit]
+Description=The nginx HTTP and reverse proxy server
+After=syslog.target network.target remote-fs.target nss-lookup.target
+
+[Service]
+Type=forking
+PIDFile=/var/run/nginx.pid
+ExecStartPre=/usr/sbin/nginx -t -c /etc/nginx/nginx.conf
+ExecStart=/usr/sbin/nginx -c /etc/nginx/nginx.conf
+ExecReload=/bin/kill -s HUP \$MAINPID
+ExecStop=/bin/kill -s QUIT \$MAINPID
+PrivateTmp=true
+LimitMEMLOCK=infinity
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
+EOnginx_service
+
+    systemctl daemon-reload
+
+    if [[ -z "$(which nginx)" ]]; then
+        # shellcheck disable=SC2059
+        printf "${RED}Install Nginx Failed${NC}\n"
+        exit 1
+    fi
+
+    mkdir -p "/etc/nginx/modules"
+    #mv "${BUILD_DIR}/ngx_http_acme_module.so" /etc/nginx/modules/ngx_http_acme_module.so
+
+    systemctl enable nginx.service
+    systemctl start nginx.service
+    cd_dir "${DIR}"
+
+}
+
+install_mariadb() {
+    safe_apt_install "cac goi can thiet de cai dat MariaDB" apt-transport-https -y
+
+    case "$ID" in
+        debian)
+            if [[ "$VERSION_ID" == '12' ]]; then
+                safe_apt_install "cac goi can thiet de cai dat MariaDB" software-properties-common
+            fi
+            ;;
+        ubuntu)
+            safe_apt_install "cac goi can thiet de cai dat MariaDB" software-properties-common
+            ;;
+    esac
+
+    cd_dir "${BUILD_DIR}"
+    ./mariadb_repo_setup --mariadb-server-version="mariadb-${MARIADB_VERSION}"
+    apt-get update
+    safe_apt_install "MariaDB" mariadb-server mariadb-backup
+
+    if [[ -z "$(which mariadb)" ]]; then
+        # shellcheck disable=SC2059
+        printf "${RED}Install MariaDB Failed${NC}\n"
+        exit 1
+    fi
+}
+
+_patch_systemd_unit_file() {
+    local service_name="$1"
+    local unit_file=""
+
+    if [[ -f "/usr/lib/systemd/system/${service_name}.service" ]]; then
+        unit_file="/usr/lib/systemd/system/${service_name}.service"
+    elif [[ -f "/lib/systemd/system/${service_name}.service" ]]; then
+        unit_file="/lib/systemd/system/${service_name}.service"
+    else
+        echo "❌ Khong tim thay systemd unit cho ${service_name}"
+        return 1
+    fi
+
+    echo "📦 Dang patch unit file: ${unit_file}"
+    cp "$unit_file" "${unit_file}.bak.$(date +%F_%H%M%S)"
+
+    if [[ "$service_name" == 'mariadb' ]]; then
+        sed -i "s/LimitNOFILE=.*/LimitNOFILE=655350/g" "$unit_file"
+        sed -i "s/PrivateTmp=false/PrivateTmp=true/g" "$unit_file"
+    else
+        local patches=(
+            "LimitNOFILE=65535"
+            "LimitMEMLOCK=infinity"
+            "PrivateTmp=true"
+            "ProtectKernelModules=true"
+            "ProtectKernelTunables=true"
+            "ProtectControlGroups=true"
+            "RestrictRealtime=true"
+            "RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX"
+        )
+
+        for patch in "${patches[@]}"; do
+            if ! grep -q "^${patch}$" "$unit_file"; then
+                sed -i "/^ExecReload=/a ${patch}" "$unit_file"
+            fi
+        done
+    fi
+
+    systemctl daemon-reload
+}
+
+install_php() {
+    safe_apt_install "PHP ${PHP_VERSION}" php"${PHP_VERSION}" php"${PHP_VERSION}"-fpm php"${PHP_VERSION}"-ldap php"${PHP_VERSION}"-zip \
+        php"${PHP_VERSION}"-cli php"${PHP_VERSION}"-mysql php"${PHP_VERSION}"-gd php"${PHP_VERSION}"-xml \
+        php"${PHP_VERSION}"-mbstring php"${PHP_VERSION}"-common php"${PHP_VERSION}"-soap \
+        php"${PHP_VERSION}"-curl php"${PHP_VERSION}"-bcmath php"${PHP_VERSION}"-snmp php"${PHP_VERSION}"-pspell \
+        php"${PHP_VERSION}"-gmp php"${PHP_VERSION}"-intl php"${PHP_VERSION}"-enchant \
+        php"${PHP_VERSION}"-xmlrpc php"${PHP_VERSION}"-tidy php"${PHP_VERSION}"-opcache php"${PHP_VERSION}"-cli \
+        php"${PHP_VERSION}"-dev php"${PHP_VERSION}"-sqlite3
+
+    if [[ ${PHP_MAJOR_VERSION} -lt 8 ]]; then
+        safe_apt_install "php-json" php"${PHP_VERSION}"-json
+    fi
+
+    if [ "${PHP_VERSION}" == "5.6" ]; then
+        safe_apt_install "php5.6-mcrypt" php5.6-mcrypt
+    fi
+
+    case "$ID" in
+        debian)
+            if [[ "$VERSION_ID" == '12' ]]; then
+                safe_apt_install "Install php${PHP_VERSION}-imap" "php${PHP_VERSION}-imap"
+            fi
+            ;;
+        ubuntu)
+            safe_apt_install "Install php${PHP_VERSION}-imap" "php${PHP_VERSION}-imap"
+            ;;
+    esac
+
+    if [[ ! -e /usr/bin/php"${PHP_VERSION}" ]]; then
+        # shellcheck disable=SC2059
+        printf "${RED}Install PHP Failed${NC}\n"
+        exit 1
+    fi
+
+    _patch_systemd_unit_file "php${PHP_VERSION}-fpm"
+
+    update-alternatives --set php /usr/bin/php"${PHP_VERSION}"
+}
+
+_build_php_ext_from_source() {
+    local name="$1"
+    local version="$2"
+    local config_args="$3"
+    local ini_priority="$4"
+
+    local folder="$BUILD_DIR/${name}-${version}"
+    local ini_file="${PHP_MODULES_PATH}/${name}.ini"
+
+    echo "📦 Dang cai dat extension: ${name} v${version}"
+
+    cd "$folder" || return 1
+
+    run_or_exit "Prepare compile PHP ${name}" /usr/bin/phpize"${PHP_VERSION}"
+    # shellcheck disable=SC2086
+    run_or_exit "configure PHP ${name}" ./configure --with-php-config="/usr/bin/php-config${PHP_VERSION}" ${config_args}
+    run_or_exit "Build PHP ${name}" make -j"${CPU_CORES}"
+    run_or_exit "Install PHP ${name}" make install -j"${CPU_CORES}"
+
+    echo "extension=${name}.so" >"$ini_file"
+    ln -sf "$ini_file" "${PHP_INI_PATH}/${ini_priority}-${name}.ini"
+    ln -sf "$ini_file" "${PHP_CLI_PATH}/${ini_priority}-${name}.ini"
+
+    echo "✅ Cai dat xong ${name}"
+}
+
+install_php_ext() {
+    _build_php_ext_from_source "igbinary" "${IG_BINARY_VERSION}" "" 30
+
+    local check_igbinary=''
+    local memcached_config_args=''
+    local redis_config_args='--enable-redis-zstd'
+
+    if [[ -x "/usr/bin/php${PHP_VERSION}" ]]; then
+        if /usr/bin/php"${PHP_VERSION}" -m | grep -q '^igbinary$'; then
+            check_igbinary='true'
+        fi
+    fi
+
+    if [[ "$check_igbinary" == 'true' ]]; then
+        memcached_config_args='--enable-memcached-igbinary'
+        redis_config_args+=' --enable-redis-igbinary'
+    fi
+
+    if [[ -e "/usr/include/lz4.h" && -e "/usr/lib/x86_64-linux-gnu/liblz4.so" ]]; then
+        redis_config_args+=' --enable-redis-lz4 --with-liblz4=/usr'
+    fi
+
+    _build_php_ext_from_source "memcached" "${PHP_MEMCACHED_VERSION}" "$memcached_config_args" 30
+    _build_php_ext_from_source "redis" "${PHP_REDIS_VERSION}" "$redis_config_args" 30
+
+    if [[ -e "/etc/php/ioncube/ioncube_loader_lin_${PHP_VERSION}.so" ]]; then
+        cat >"${PHP_MODULES_PATH}/ioncube.ini" <<END
+zend_extension=/etc/php/ioncube/ioncube_loader_lin_${PHP_VERSION}.so
+END
+
+        ln -s "${PHP_MODULES_PATH}/ioncube.ini" "${PHP_INI_PATH}/01-ioncube.ini"
+        ln -s "${PHP_MODULES_PATH}/ioncube.ini" "${PHP_CLI_PATH}/01-ioncube.ini"
+    fi
+
+    systemctl restart php"${PHP_VERSION}"-fpm.service
+}
+
+install_phpmyadmin() {
+    if [ "${PHP_VERSION}" != "5.6" ]; then
+        DECLARE="declare(strict_types=1);"
+    fi
+
+    delete_dir "${DEFAULT_DIR_TOOL}"/phpmyadmin/setup
+
+    mv "${DEFAULT_DIR_TOOL}"/phpmyadmin/config.sample.inc.php "${DEFAULT_DIR_TOOL}"/phpmyadmin/config.inc.php
+
+    BLOWFISH_SECRET=$(random_string 31)
+    mkdir -p "${DEFAULT_DIR_TOOL}/phpmyadmin/tmp"  "${DEFAULT_DIR_TOOL}/phpmyadmin/logs"
+    touch "${DEFAULT_DIR_TOOL}/phpmyadmin/logs/auth_fail.log"
+
+    cat >"${DEFAULT_DIR_TOOL}/phpmyadmin/config.inc.php" <<EOCONFIGINC
+<?php
+${DECLARE}
+\$cfg['blowfish_secret'] = '${BLOWFISH_SECRET}';
+\$i = 0;
+\$i++;
+\$cfg['Servers'][\$i]['auth_type'] = 'cookie';
+\$cfg['Servers'][\$i]['host'] = 'localhost';
+\$cfg['Servers'][\$i]['connect_type'] = 'tcp';
+\$cfg['Servers'][\$i]['compress'] = false;
+\$cfg['Servers'][\$i]['AllowNoPassword'] = false;
+\$cfg['UploadDir'] = '';
+\$cfg['SaveDir'] = '';
+\$cfg['PmaNoRelation_DisableWarning'] = true;
+\$cfg['VersionCheck'] = false;
+\$cfg['TempDir'] = '${DEFAULT_DIR_TOOL}/phpmyadmin/tmp';
+\$cfg['CaptchaLoginPublicKey'] = '';
+\$cfg['CaptchaLoginPrivateKey'] = '';
+\$cfg['ExecTimeLimit'] = 600;
+\$cfg['DefaultCharset'] = 'utf8';
+\$cfg['DefaultConnectionCollation'] = 'utf8_general_ci';
+
+\$cfg['AuthLog'] = '${DEFAULT_DIR_TOOL}/phpmyadmin/logs/auth_fail.log';
+EOCONFIGINC
+
+    chown -R nginx:nginx "${DEFAULT_DIR_TOOL}"/phpmyadmin
+
+    cat >>"${BUILD_DIR}/phpmyadmin.temp" <<EOphpmyadmin_temp
+CREATE DATABASE IF NOT EXISTS phpmyadmin;
+FLUSH PRIVILEGES;
+EOphpmyadmin_temp
+
+    mariadb -u root -p"${SQL_ROOT_PASS}" <${BUILD_DIR}/phpmyadmin.temp
+    delete_file "${BUILD_DIR}/phpmyadmin.temp"
+
+    mariadb -u root -p"${SQL_ROOT_PASS}" phpmyadmin <"${BUILD_DIR}/phpmyadmin.sql" || {
+        # shellcheck disable=SC2059
+        printf "${RED}❌ Loi khi cai dat phpMyAdmin${NC}"
+        exit 1
+    }
+}
+
+install_wp_cli_packages() {
+    sed -i '/memory_limit/d' "${PHP_MODULES_PATH}/mcnvps-custom.ini"
+    echo "memory_limit = -1" >>"${PHP_MODULES_PATH}/mcnvps-custom.ini"
+
+    systemctl restart php"${PHP_VERSION}"-fpm
+
+    run_or_exit "Install wp-cli-rename-db-prefix" wp package install iandunn/wp-cli-rename-db-prefix --allow-root
+    run_or_exit "Install wp-revisions-cli" wp package install trepmal/wp-revisions-cli --allow-root
+
+    sed -i '/memory_limit/d' "${PHP_MODULES_PATH}/mcnvps-custom.ini"
+    echo "memory_limit = ${MAX_MEMORY}M" >>"${PHP_MODULES_PATH}/mcnvps-custom.ini"
+
+    systemctl restart php"${PHP_VERSION}"-fpm
+}
+
+############################################
+# Dynamic calculation
+############################################
+php_memory_calculation() {
+    if [[ "${PHP_MEM}" -le '262144' ]]; then
+        OPCACHE_MEM='128'
+        MAX_MEMORY='128'
+        PHP_REAL_PATH_LIMIT='512k'
+        PHP_REAL_PATH_TTL='14400'
+        MAX_INPUT_VARS="6000"
+    elif [[ "${PHP_MEM}" -gt '262144' && "${PHP_MEM}" -le '393216' ]]; then
+        OPCACHE_MEM='128'
+        MAX_MEMORY='128'
+        PHP_REAL_PATH_LIMIT='640k'
+        PHP_REAL_PATH_TTL='21600'
+        MAX_INPUT_VARS="6000"
+    elif [[ "${PHP_MEM}" -gt '393216' && "${PHP_MEM}" -le '524288' ]]; then
+        OPCACHE_MEM='128'
+        MAX_MEMORY='128'
+        PHP_REAL_PATH_LIMIT='768k'
+        PHP_REAL_PATH_TTL='21600'
+        MAX_INPUT_VARS="6000"
+    elif [[ "${PHP_MEM}" -gt '524288' && "${PHP_MEM}" -le '1049576' ]]; then
+        OPCACHE_MEM='144'
+        MAX_MEMORY='160'
+        PHP_REAL_PATH_LIMIT='768k'
+        PHP_REAL_PATH_TTL='28800'
+        MAX_INPUT_VARS="6000"
+    elif [[ "${PHP_MEM}" -gt '1049576' && "${PHP_MEM}" -le '2097152' ]]; then
+        OPCACHE_MEM='160'
+        MAX_MEMORY='320'
+        PHP_REAL_PATH_LIMIT='1536k'
+        PHP_REAL_PATH_TTL='28800'
+        MAX_INPUT_VARS="6000"
+    elif [[ "${PHP_MEM}" -gt '2097152' && "${PHP_MEM}" -le '3145728' ]]; then
+        OPCACHE_MEM='192'
+        MAX_MEMORY='384'
+        PHP_REAL_PATH_LIMIT='2048k'
+        PHP_REAL_PATH_TTL='43200'
+        MAX_INPUT_VARS="6000"
+    elif [[ "${PHP_MEM}" -gt '3145728' && "${PHP_MEM}" -le '4194304' ]]; then
+        OPCACHE_MEM='224'
+        MAX_MEMORY='512'
+        PHP_REAL_PATH_LIMIT='3072k'
+        PHP_REAL_PATH_TTL='43200'
+        MAX_INPUT_VARS="6000"
+    elif [[ "${PHP_MEM}" -gt '4194304' && "${PHP_MEM}" -le '8180000' ]]; then
+        OPCACHE_MEM='288'
+        MAX_MEMORY='640'
+        PHP_REAL_PATH_LIMIT='4096k'
+        PHP_REAL_PATH_TTL='43200'
+        MAX_INPUT_VARS="10000"
+    elif [[ "${PHP_MEM}" -gt '8180000' && "${PHP_MEM}" -le '16360000' ]]; then
+        OPCACHE_MEM='320'
+        MAX_MEMORY='800'
+        PHP_REAL_PATH_LIMIT='4096k'
+        PHP_REAL_PATH_TTL='43200'
+        MAX_INPUT_VARS="10000"
+    elif [[ "${PHP_MEM}" -gt '16360000' && "${PHP_MEM}" -le '32400000' ]]; then
+        OPCACHE_MEM='480'
+        MAX_MEMORY='1024'
+        PHP_REAL_PATH_LIMIT='4096k'
+        PHP_REAL_PATH_TTL='43200'
+        MAX_INPUT_VARS="10000"
+    elif [[ "${PHP_MEM}" -gt '32400000' && "${PHP_MEM}" -le '64800000' ]]; then
+        OPCACHE_MEM='600'
+        MAX_MEMORY='1280'
+        PHP_REAL_PATH_LIMIT='4096k'
+        PHP_REAL_PATH_TTL='43200'
+        MAX_INPUT_VARS="10000"
+    elif [[ "${PHP_MEM}" -gt '64800000' ]]; then
+        OPCACHE_MEM='800'
+        MAX_MEMORY='2048'
+        PHP_REAL_PATH_LIMIT='8192k'
+        PHP_REAL_PATH_TTL='86400'
+        MAX_INPUT_VARS="10000"
+    fi
+}
+
+php_parameter() {
+    if [[ ${CPU_CORES} -ge 4 && ${CPU_CORES} -lt 6 && ${RAM_TOTAL} -gt 1049576 && ${RAM_TOTAL} -le 2097152 ]]; then
+        PM_MAX_CHILDREN=$((CPU_CORES * 6))
+        PM_MAX_REQUEST=2000
+    elif [[ ${CPU_CORES} -ge 4 && ${CPU_CORES} -lt 6 && ${RAM_TOTAL} -gt 2097152 && ${RAM_TOTAL} -le 3145728 ]]; then
+        PM_MAX_CHILDREN=$((CPU_CORES * 6))
+        PM_MAX_REQUEST=2000
+    elif [[ ${CPU_CORES} -ge 4 && ${CPU_CORES} -lt 6 && ${RAM_TOTAL} -gt 3145728 && ${RAM_TOTAL} -le 4194304 ]]; then
+        PM_MAX_CHILDREN=$((CPU_CORES * 6))
+        PM_MAX_REQUEST=2000
+    elif [[ ${CPU_CORES} -ge 4 && ${CPU_CORES} -lt 6 && ${RAM_TOTAL} -gt 4194304 ]]; then
+        PM_MAX_CHILDREN=$((CPU_CORES * 6))
+        PM_MAX_REQUEST=2000
+    elif [[ ${CPU_CORES} -ge 6 && ${CPU_CORES} -lt 8 && ${RAM_TOTAL} -gt 3145728 && ${RAM_TOTAL} -le 4194304 ]]; then
+        PM_MAX_CHILDREN=$((CPU_CORES * 6))
+        PM_MAX_REQUEST=2000
+    elif [[ ${CPU_CORES} -ge 6 && ${CPU_CORES} -lt 8 && ${RAM_TOTAL} -gt 4194304 ]]; then
+        PM_MAX_CHILDREN=$((CPU_CORES * 6))
+        PM_MAX_REQUEST=2000
+    elif [[ ${CPU_CORES} -ge 8 && ${CPU_CORES} -lt 16 && ${RAM_TOTAL} -gt 3145728 && ${RAM_TOTAL} -le 4194304 ]]; then
+        PM_MAX_CHILDREN=$((CPU_CORES * 6))
+        PM_MAX_REQUEST=2000
+    elif [[ ${CPU_CORES} -ge 8 && ${CPU_CORES} -lt 12 && ${RAM_TOTAL} -gt 4194304 ]]; then
+        PM_MAX_CHILDREN=$((CPU_CORES * 6))
+        PM_MAX_REQUEST=2000
+    elif [[ ${CPU_CORES} -ge 13 && ${CPU_CORES} -lt 16 && ${RAM_TOTAL} -gt 4194304 ]]; then
+        PM_MAX_CHILDREN=$((CPU_CORES * 6))
+        PM_MAX_REQUEST=2000
+    elif [[ ${CPU_CORES} -ge 17 && ${RAM_TOTAL} -gt 4194304 ]]; then
+        PM_MAX_CHILDREN=$((CPU_CORES * 5))
+        PM_MAX_REQUEST=2000
+    else
+        PM_MAX_CHILDREN=$((CPU_CORES * 5))
+        PM_MAX_REQUEST=500
+    fi
+}
+
+############################################
+# Config LEMP
+############################################
+# Config SSL
+self_signed_ssl() {
+    #Create dhparams
+    self_signed_dir="/etc/nginx/ssl/default"
+    mkdir -p "${self_signed_dir}"
+    openssl dhparam -out /etc/nginx/ssl/dhparams.pem 2048
+    openssl genrsa -out "${self_signed_dir}/server.key" 4096
+    openssl req -new -key "${self_signed_dir}/server.key" \
+        -out "${self_signed_dir}/server.csr" -subj "/C=VN/ST=Dong Da/L=Hanoi/O=Hostvn.net/OU=IT Department/CN=${IPADDRESS}"
+    openssl x509 -in "${self_signed_dir}/server.csr" -out "${self_signed_dir}/server.crt" \
+        -req -signkey "${self_signed_dir}/server.key" -days 3650
+}
+
+# Config PHP-FPM
+php_global_config() {
+    if [[ -f "$PHP_CONFIG_PATH/php-fpm.conf" ]]; then
+        mv "$PHP_CONFIG_PATH"/php-fpm.conf "$PHP_CONFIG_PATH"/php-fpm.conf."$(date +%Y-%m-%d)"
+    fi
+
+    cat >>"$PHP_CONFIG_PATH/php-fpm.conf" <<EOphp_fpm_conf
+;;;;;;;;;;;;;;;;;;;;;
+; FPM Configuration ;
+;;;;;;;;;;;;;;;;;;;;;
+
+include=$PHP_POOL_PATH/*.conf
+
+[global]
+pid = /run/php/php${PHP_VERSION}-fpm.pid
+error_log = /var/log/php-fpm/error.log
+log_level = warning
+emergency_restart_threshold = 10
+emergency_restart_interval = 1m
+process_control_timeout = 10s
+daemonize = yes
+EOphp_fpm_conf
+
+    if [[ -f "$PHP_POOL_PATH/www.conf" ]]; then
+        mv "$PHP_POOL_PATH"/www.conf "$PHP_POOL_PATH"/www.conf."$(date +%Y-%m-%d)"
+    fi
+    cat >>"$PHP_POOL_PATH/www.conf" <<EOwww_conf
+[www]
+listen = /var/run/php${PHP_VERSION}-fpm.sock;
+listen.allowed_clients = 127.0.0.1
+listen.owner = nginx
+listen.group = nginx
+listen.mode = 0660
+user = nginx
+group = nginx
+pm = ondemand
+pm.max_children = ${PM_MAX_CHILDREN}
+pm.max_requests = ${PM_MAX_REQUEST}
+pm.process_idle_timeout = 20
+;slowlog = /var/log/php-fpm/slow/slow.log
+chdir = /
+php_admin_value[error_log] = /var/log/php-fpm/error/error.log
+php_admin_flag[log_errors] = on
+php_value[session.save_handler] = files
+php_value[session.save_path]    = /var/lib/php/session
+php_value[soap.wsdl_cache_dir]  = /var/lib/php/wsdlcache
+php_admin_value[disable_functions] = exec,system,passthru,shell_exec,proc_close,proc_open,dl,popen,show_source,posix_kill,posix_mkfifo,posix_getpwuid,posix_setpgid,posix_setsid,posix_setuid,posix_setgid,posix_seteuid,posix_setegid,posix_uname
+php_admin_value[open_basedir] = /tmp/:/var/tmp/:/dev/urandom:/usr/share/php/:/dev/shm:/var/lib/php/sessions/:/var/www/
+security.limit_extensions = .php
+EOwww_conf
+
+    mkdir -p /var/lib/php/session
+    mkdir -p /var/lib/php/wsdlcache
+    mkdir -p /var/log/php-fpm/slow /var/log/php-fpm/error
+    chown -R nginx:nginx /var/lib/php/session
+    chown -R nginx:nginx /var/lib/php/wsdlcache
+    chown -R nginx:nginx /var/log/php-fpm
+    chmod 755 /var/lib/php/session
+    chmod 755 /var/lib/php/wsdlcache
+}
+
+mcnvps_custom_ini() {
+    cat >"${PHP_MODULES_PATH}/mcnvps-custom.ini" <<EOmcnvps_custom_ini
+date.timezone = Asia/Ho_Chi_Minh
+max_execution_time = 600
+max_input_time = 600
+short_open_tag = On
+realpath_cache_size = ${PHP_REAL_PATH_LIMIT}
+realpath_cache_ttl = ${PHP_REAL_PATH_TTL}
+memory_limit = ${MAX_MEMORY}M
+upload_max_filesize = ${MAX_MEMORY}M
+post_max_size = ${MAX_MEMORY}M
+expose_php = Off
+display_errors = Off
+mail.add_x_header = Off
+max_input_nesting_level = 128
+max_input_vars = ${MAX_INPUT_VARS}
+mysqlnd.net_cmd_buffer_size = 16384
+mysqlnd.collect_memory_statistics = Off
+mysqlnd.mempool_default_size = 16000
+always_populate_raw_post_data=-1
+error_reporting = E_ALL & ~E_NOTICE
+EOmcnvps_custom_ini
+
+    delete_file "${PHP_CLI_PATH}/00-mcnvps-custom.ini"
+    delete_file "${PHP_INI_PATH}/00-mcnvps-custom.ini"
+
+    ln -s "${PHP_MODULES_PATH}/mcnvps-custom.ini" "${PHP_CLI_PATH}/00-mcnvps-custom.ini"
+    ln -s "${PHP_MODULES_PATH}/mcnvps-custom.ini" "${PHP_INI_PATH}/00-mcnvps-custom.ini"
+}
+
+php_opcache() {
+    if [[ -e "${PHP_MODULES_PATH}/opcache.ini" ]]; then
+        mv "${PHP_MODULES_PATH}/opcache.ini" "${PHP_MODULES_PATH}/opcache.ini.$(date +%Y-%m-%d)"
+    fi
+
+    cat >"${PHP_MODULES_PATH}/opcache.ini" <<EOphp_opcache
+zend_extension=opcache.so
+opcache.jit=disable
+opcache.enable=1
+opcache.memory_consumption=${OPCACHE_MEM}
+opcache.interned_strings_buffer=8
+opcache.max_wasted_percentage=5
+opcache.max_accelerated_files=65407
+opcache.revalidate_freq=180
+opcache.fast_shutdown=0
+opcache.enable_cli=0
+opcache.save_comments=1
+opcache.enable_file_override=1
+opcache.validate_timestamps=1
+opcache.blacklist_filename=${PHP_MODULES_PATH}/opcache-default.blacklist
+EOphp_opcache
+
+    cat >"${PHP_MODULES_PATH}/opcache-default.blacklist" <<EOopcache_blacklist
+/home/*/*/public_html/wp-content/plugins/backwpup/*
+/home/*/*/public_html/wp-content/plugins/duplicator/*
+/home/*/*/public_html/wp-content/plugins/updraftplus/*
+/home/*/*/public_html/wp-content/cache/*
+/home/*/*/public_html/wp-content/uploads/*
+/home/*/*/public_html/storage/*
+EOopcache_blacklist
+
+    delete_file "${PHP_CLI_PATH}/10-opcache.ini"
+    delete_file "${PHP_INI_PATH}/10-opcache.ini"
+
+    ln -s "${PHP_MODULES_PATH}/opcache.ini" "${PHP_CLI_PATH}/10-opcache.ini"
+    ln -s "${PHP_MODULES_PATH}/opcache.ini" "${PHP_INI_PATH}/10-opcache.ini"
+}
+
+_mysql_secure_installation() {
+    expect <<EOF
+spawn mysql_secure_installation
+
+expect "Enter current password for root"
+send "\r"
+
+expect "Switch to unix_socket authentication"
+send "n\r"
+
+expect "Change the root password?"
+send "y\r"
+
+expect "New password:"
+send "${SQL_ROOT_PASS}\r"
+
+expect "Re-enter new password:"
+send "${SQL_ROOT_PASS}\r"
+
+expect "Remove anonymous users?"
+send "y\r"
+
+expect "Disallow root login remotely?"
+send "y\r"
+
+expect "Remove test database and access to it?"
+send "y\r"
+
+expect "Reload privilege tables now?"
+send "y\r"
+
+expect eof
+EOF
+
+    Q1="CREATE USER IF NOT EXISTS 'sqladmin'@'localhost' IDENTIFIED BY '${SQL_ADMIN_PASS}';"
+    Q2="CREATE USER IF NOT EXISTS 'sqladmin'@'127.0.0.1' IDENTIFIED BY '${SQL_ADMIN_PASS}';"
+    Q3="GRANT ALL PRIVILEGES ON *.* TO 'sqladmin'@'localhost' WITH GRANT OPTION;"
+    Q4="GRANT ALL PRIVILEGES ON *.* TO 'sqladmin'@'127.0.0.1' WITH GRANT OPTION;"
+    Q5="FLUSH PRIVILEGES;"
+
+    SQL="${Q1}${Q2}${Q3}${Q4}${Q5}"
+    mariadb -u root -e "${SQL}" || {
+        # shellcheck disable=SC2059
+        printf "${RED}❌ Khong the chay lenh SQL de bao mat MariaDB${NC}"
+        exit 1
+    }
+}
+
+config_my_cnf() {
+    mkdir -m 2750 /var/log/mysql
+    chown -R mysql:mysql /var/log/mysql
+
+    systemctl start mariadb
+    systemctl enable mariadb
+
+    _mysql_secure_installation
+    _patch_systemd_unit_file "mariadb"
+}
+
+config_nginx() {
+    mkdir -p '/etc/nginx/sites-available' '/etc/nginx/sites-enabled' '/etc/nginx/geo' '/etc/nginx/conf.d/wordpress'
+
+    cat >"/etc/nginx/nginx.conf" <<END
+worker_processes  auto;
+pid /var/run/nginx.pid;
+#error_log  /var/log/nginx/errors/error.log;
+#error_log  /var/log/nginx/errors/error.log  notice;
+#error_log  /var/log/nginx/errors/error.log  info;
+
+events {
+    worker_connections  10240;
+}
+
+http {
+    include       /etc/nginx/mime.types;
+
+    charset utf-8;
+    default_type  application/octet-stream;
+
+    tcp_nopush on;
+    tcp_nodelay on;
+
+    sendfile        on;
+    sendfile_max_chunk 512k;
+
+    log_format  main  '\$remote_addr - \$remote_user [\$time_local] "\$request" '
+                      '\$status \$body_bytes_sent "\$http_referer" '
+                      '"\$http_user_agent" "\$http_x_forwarded_for" "\$geoip2_asn" "\$geoip2_organization" "\$geoip2_data_country_name" '
+                      '\$request_time';
+
+    #log_format bytes '\$bytes_sent \$request_length';
+
+    keepalive_timeout  15;
+    types_hash_max_size 2048;
+
+    disable_symlinks if_not_owner from=\$document_root;
+
+    server_tokens off;
+
+    client_max_body_size 1024m;
+    client_body_buffer_size 128k;
+
+    server_names_hash_bucket_size 128;
+    server_names_hash_max_size 10240;
+    variables_hash_max_size 2048;
+    variables_hash_bucket_size 128;
+
+    merge_slashes on;
+
+    aio threads;
+    directio 4m;
+
+    reset_timedout_connection on;
+    lingering_time 20s;
+    lingering_timeout 5s;
+
+    ssl_dhparam /etc/nginx/ssl/dhparams.pem;
+
+    ssl_session_cache   shared:SSL:10m;
+    ssl_session_timeout  5m;
+
+    ssl_early_data on;
+    ssl_dyn_rec_enable on;
+
+    # https://mozilla.github.io/server-side-tls/ssl-config-generator/ intermediate configuration.
+    ssl_protocols TLSv1.1 TLSv1.2 TLSv1.3;
+    ssl_ciphers 'ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES256-GCM-SHA384:DHE-RSA-AES128-GCM-SHA256:DHE-DSS-AES128-GCM-SHA256:kEDH+AESGCM:ECDHE-RSA-AES128-SHA256:ECDHE-ECDSA-AES128-SHA256:ECDHE-RSA-AES128-SHA:ECDHE-ECDSA-AES128-SHA:ECDHE-RSA-AES256-SHA384:ECDHE-ECDSA-AES256-SHA384:ECDHE-RSA-AES256-SHA:ECDHE-ECDSA-AES256-SHA:DHE-RSA-AES128-SHA256:DHE-RSA-AES128-SHA:DHE-DSS-AES128-SHA256:DHE-RSA-AES256-SHA256:DHE-DSS-AES256-SHA:DHE-RSA-AES256-SHA:ECDHE-RSA-DES-CBC3-SHA:ECDHE-ECDSA-DES-CBC3-SHA:AES128-GCM-SHA256:AES256-GCM-SHA384:AES128-SHA256:AES256-SHA256:AES128-SHA:AES256-SHA:AES:CAMELLIA:DES-CBC3-SHA:!aNULL:!eNULL:!EXPORT:!DES:!RC4:!MD5:!PSK:!aECDH:!EDH-DSS-DES-CBC3-SHA:!EDH-RSA-DES-CBC3-SHA:!KRB5-DES-CBC3-SHA';
+    ssl_prefer_server_ciphers on;
+    resolver             1.1.1.1 1.0.0.1 8.8.8.8 8.8.4.4 valid=10m;
+    resolver_timeout     5s;
+
+    # Limit Request
+    limit_req_status 444;
+    # limit the number of connections per single IP
+    limit_conn_zone \$binary_remote_addr zone=conn_limit_per_ip:10m;
+    # limit the number of requests for a given session
+    limit_req_zone \$binary_remote_addr zone=req_limit_per_ip:10m rate=1r/s;
+
+    index  index.html index.htm index.php;
+
+    include /etc/nginx/conf.d/map.conf;
+    include /etc/nginx/nginx-cloudflare.conf;
+    include /etc/nginx/nginx-geo.conf;
+    include /etc/nginx/nginx-gzip.conf;
+    include /etc/nginx/nginx-brotli.conf;
+    include /etc/nginx/nginx-headers.conf;
+    include /etc/nginx/nginx-proxy.conf;
+    include /etc/nginx/nginx-fastcgi-cache.conf;
+    include /etc/nginx/conf.d/skip-cache.conf;
+    include /etc/nginx/nginx-vhosts.conf;
+    include /etc/nginx/sites-enabled/*.conf;
+}
+END
+
+    CF_CONFIG_FILE="/etc/nginx/nginx-cloudflare.conf"
+
+    {
+        echo "real_ip_header CF-Connecting-IP;"
+        while read -r ip; do
+            [[ -n "$ip" ]] && echo "set_real_ip_from $ip;"
+        done < "$CF_IPV4_FILE"
+
+        while read -r ip; do
+            [[ -n "$ip" ]] && echo "set_real_ip_from $ip;"
+        done < "$CF_IPV6_FILE"
+    } > "$CF_CONFIG_FILE"
+
+    cat >"/etc/nginx/nginx-gzip.conf" <<END
+gzip on;
+gzip_static on;
+gzip_disable "msie6";
+gzip_http_version 1.1;
+gzip_vary on;
+gzip_comp_level 1;
+gzip_proxied any;
+gzip_types text/plain text/css application/json application/x-javascript text/xml application/xml application/xml+rss text/javascript application/javascript text/x-js image/svg+xml;
+gzip_buffers 16 8k;
+END
+
+    cat >"/etc/nginx/nginx-brotli.conf" <<END
+brotli on;
+brotli_min_length 1000;
+brotli_comp_level 1;
+brotli_static on;
+brotli_types text/plain text/css application/json application/x-javascript text/xml application/xml application/xml+rss text/javascript application/javascript text/x-js image/svg+xml;
+END
+
+    cat >"/etc/nginx/nginx-headers.conf" <<END
+more_clear_headers X-Powered-By;
+more_clear_headers Server;
+more_clear_headers x-turbo-charged-by;
+more_clear_headers alt-svc;
+more_clear_headers x-redirect-by;
+more_set_headers   'Server MCNVPS.NET';
+END
+
+    cat >"/etc/nginx/well-known.conf" <<END
+location ^~ /.well-known/ {
+    root /var/www/html/;
+    index index.html index.htm;
+
+    default_type "text/plain";
+
+    location ~* ^/.well-known/(acme-challenge|pki-validation)/.*(\.htaccess|\.htpasswd|\.user\.ini|\.env|\.git)$ {
+        deny all;
+        access_log off;
+        return 444;
+    }
+
+    location ~* ^/.well-known/(acme-challenge|pki-validation)/.*\.(?:s?html?|php[0-9]?|pl|py|exe|log|bak|cgi|sh|bash|sql|zip|gz|rar|nok|love|save|old)$ {
+        access_log off;
+        log_not_found off;
+        return 444;
+    }
+
+    location ~* ^/.well-known/(acme-challenge|pki-validation)/(.+\.(jpg|jpeg|gif|css|png|js|ico|html|webp|xml|txt))$ {
+        root /var/www/html/;
+    }
+}
+
+location ~* ^/.well-known/.*\.(?:s?html?|php[0-9]?|pl|py|exe|log|bak|cgi|sh|bash|sql|zip|gz|rar|nok|love|save|old)$ {
+    access_log off;
+    log_not_found off;
+    return 444;
+}
+END
+
+    cat >"/etc/nginx/nginx_limits.conf" <<END
+fastcgi_buffer_size 128k;
+fastcgi_buffers 256 16k;
+fastcgi_busy_buffers_size 256k;
+fastcgi_temp_file_write_size 256k;
+fastcgi_send_timeout 600;
+fastcgi_read_timeout 600;
+fastcgi_intercept_errors on;
+fastcgi_param HTTP_PROXY "";
+END
+
+    cat >"/etc/nginx/nginx-proxy.conf" <<END
+proxy_connect_timeout 150s;
+proxy_send_timeout    150s;
+proxy_read_timeout    1800s;
+proxy_buffer_size     128k;
+proxy_buffers       4 256k;
+proxy_busy_buffers_size 256k;
+END
+
+    cat >"/etc/nginx/nginx-vhosts.conf" <<END
+server {
+    listen 80 default_server reuseport;
+    listen [::]:80 default_server reuseport;
+
+    server_name _;
+    add_header X-Robots-Tag "noindex, nofollow";
+
+    root $DEFAULT_DIR_WEB;
+
+    if (\$is_bad_ua = 1) {
+        return 444;
+    }
+
+    if (\$block_sensitive_files = 1) {
+        return 444;
+    }
+
+    location / {
+        index index.html index.htm;
+    }
+}
+
+server {
+    listen 443 quic reuseport default_server;
+    listen 443 ssl default_server;
+    listen [::]:443 quic reuseport default_server;
+    listen [::]:443 ssl default_server;
+    http2 on;
+    http3 on;
+    quic_retry on;
+
+    server_name _;
+
+    ssl_certificate /etc/nginx/ssl/default/server.crt;
+    ssl_certificate_key /etc/nginx/ssl/default/server.key;
+
+    add_header X-Robots-Tag "noindex, nofollow";
+
+    if (\$is_bad_ua = 1) {
+        return 444;
+    }
+
+    if (\$block_sensitive_files = 1) {
+        return 444;
+    }
+
+    root $DEFAULT_DIR_WEB;
+
+    include /etc/nginx/well-known.conf;
+
+    location / {
+        index index.html index.htm;
+    }
+}
+
+server {
+    listen ${RANDOM_ADMIN_PORT};
+    listen [::]:${RANDOM_ADMIN_PORT};
+
+    server_name ${IPADDRESS};
+
+    access_log off;
+    log_not_found off;
+    error_log /var/log/nginx/errors/error.log;
+
+    add_header X-Robots-Tag "noindex, nofollow";
+
+    root ${DEFAULT_DIR_TOOL};
+    index index.php index.html index.htm;
+
+    location ^~ /phpmyadmin {
+        root ${DEFAULT_DIR_TOOL}/;
+        index index.php index.html index.htm;
+        location ~ ^/phpmyadmin/(.+\.php)\$ {
+            try_files \$uri =404;
+            fastcgi_split_path_info ^(.+\.php)(/.+)\$;
+            fastcgi_index index.php;
+            include /etc/nginx/fastcgi_params;
+            include /etc/nginx/nginx_limits.conf;
+            fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
+
+            if (-f \$request_filename)
+            {
+                fastcgi_pass unix:/var/run/php${PHP_VERSION}-fpm.sock;
+            }
+        }
+        location ~* ^/phpmyadmin/(.+\.(jpg|jpeg|gif|css|png|js|ico|html|webp|xml|txt))\$ {
+            root ${DEFAULT_DIR_TOOL}/;
+        }
+    }
+
+    location ~ ^/pma { rewrite ^/* /phpmyadmin last; }
+    location ^~ /phpmyadmin/locale/ { return 444; access_log off; log_not_found off; }
+    location ^~ /phpmyadmin/doc/ { return 444; access_log off; log_not_found off; }
+    location ^~ /phpmyadmin/log/ { return 444; access_log off; log_not_found off; }
+    location ^~ /phpmyadmin/logs/ { return 444; access_log off; log_not_found off; }
+    location ^~ /phpmyadmin/tmp/ { return 444; access_log off; log_not_found off; }
+    location ^~ /phpmyadmin/libraries/ { return 444; access_log off; log_not_found off; }
+    location ^~ /phpmyadmin/templates/ { return 444; access_log off; log_not_found off; }
+    location ^~ /phpmyadmin/sql/ { return 444; access_log off; log_not_found off; }
+    location ^~ /phpmyadmin/vendor/ { return 444; access_log off; log_not_found off; }
+    location ^~ /phpmyadmin/examples/ { return 444; access_log off; log_not_found off; }
+}
+END
+
+    delete_dir /etc/nginx/wp-rocket
+    run_or_exit "Move rocket-nginx" mv "${BUILD_DIR}/rocket-nginx-${ROCKET_NGINX_VER}" /etc/nginx/wp-rocket
+    cd_dir /etc/nginx/wp-rocket
+    run_or_exit "Rename rocket-nginx config" cp rocket-nginx.ini.disabled rocket-nginx.ini
+    sed -i "s|media_expiration =.*|media_expiration = \"365d\"|g" /etc/nginx/wp-rocket/rocket-nginx.ini
+    run_or_exit "Create rocket-nginx config" php rocket-parser.php
+    cp /etc/nginx/wp-rocket/conf.d/default.conf /etc/nginx/wp-rocket/conf.d/wp-rocket.conf
+
+    mkdir -p /etc/nginx/conf.d
+
+    cat >"/etc/nginx/conf.d/http_to_https.conf" <<END
+if (\$scheme != "https") {
+    rewrite ^ https://\$host\$request_uri permanent;
+}
+END
+
+    cat >"/etc/nginx/conf.d/rank-math-sitemap.conf"<<END
+# START Rank Math Sitemaps
+rewrite ^/sitemap_index.xml$ /index.php?sitemap=1 last;
+rewrite ^/([^/]+?)-sitemap([0-9]+)?.xml$ /index.php?sitemap=\$1&sitemap_n=\$2 last;
+rewrite ^/([a-z]+)?-sitemap\.xsl$ /index.php?xsl=\$1 last;
+# END Rank Math Sitemaps
+END
+
+    cat >"/etc/nginx/conf.d/yoast-seo-sitemap.conf"<<END
+# START Yoast SEO Sitemaps
+location ~ ([^/]*)sitemap(.*).x(m|s)l$ {
+    ## this rewrites sitemap.xml to /sitemap_index.xml
+    rewrite ^/sitemap.xml$ /sitemap_index.xml permanent;
+    ## this makes the XML sitemaps work
+    rewrite ^/([a-z]+)?-?sitemap.xsl$ /index.php?yoast-sitemap-xsl=\$1 last;
+    rewrite ^/sitemap_index.xml$ /index.php?sitemap=1 last;
+    rewrite ^/([^/]+?)-sitemap([0-9]+)?.xml$ /index.php?sitemap=\$1&sitemap_n=\$2 last;
+    ## The following lines are optional for the premium extensions
+    ## News SEO
+    rewrite ^/news-sitemap.xml$ /index.php?sitemap=wpseo_news last;
+    ## Local SEO
+    rewrite ^/locations.kml$ /index.php?sitemap=wpseo_local_kml last;
+    rewrite ^/geo-sitemap.xml$ /index.php?sitemap=wpseo_local last;
+    ## Video SEO
+    rewrite ^/video-sitemap.xsl$ /index.php?yoast-sitemap-xsl=video last;
+}
+# END Yoast SEO Sitemaps
+END
+
+    cat>"/etc/nginx/conf.d/map.conf"<<END
+map \$request_uri \$block_php_in_wp_content {
+    default 0;
+    ~*^/wp-content(?:/.*)?\.php$ 1;
+}
+
+map \$request_uri \$block_php_in_wp_plugins {
+    default 0;
+    ~*^/wp-content/plugins/.*\.php$ 1;
+}
+
+map \$request_uri \$block_php_in_wp_themes {
+    default 0;
+    ~*^/wp-content/themes/.*\.php$ 1;
+}
+
+map \$request_uri \$block_php_in_wp_admin {
+    default 0;
+    ~*^/wp-admin/admin-ajax\.php$ 0;
+    ~*^/wp-admin(?:/.*)?\.php$ 1;
+}
+
+map \$request_uri \$block_wp_includes {
+    default 0;
+    ~*^/wp-includes/[^/]+\.php$ 1;
+    ~*^/wp-includes/js/tinymce/langs/.+\.php$ 1;
+    ~*^/wp-includes/theme-compat/ 1;
+}
+
+map \$http_cookie \$has_wp_logged_in_cookie {
+    default 0;
+    ~*wordpress_logged_in_[^=]*= 1;
+}
+
+map \$request_uri \$is_wp_json_users {
+    default 0;
+    ~*^/wp-json/wp/v2/users/?$ 1;
+}
+
+map "\$is_wp_json_users:\$has_wp_logged_in_cookie" \$block_users_api {
+    default 0;
+    "1:0" 1;
+}
+
+map "\$uri?\$query_string" \$block_author_enum {
+    default 0;
+    #~*^/author/ 1;
+    ~*[\?&]author=[^&]+ 1;
+}
+
+map \$uri \$block_php_files {
+    default 0;
+    ~*\.php([0-9]+(\.[0-9]+)*)?$ 1;
+}
+
+map \$uri \$is_php_files_in_cache_dir {
+    default 0;
+    ~^/wp-content/cache/.*\.php([0-9]+(\.[0-9]+)*)?$ 1;
+}
+
+map \$uri \$block_sensitive_files {
+    default 0;
+    ~*\.php[0-9]+(\.[0-9]+)*$ 1;
+    ~*^/.+\.ht[^/]*$          1;
+    ~*\.env$                  1;
+    ~*\.ini$                  1;
+    ~*\.sql$                  1;
+    ~*\.gz$                   1;
+    ~*\.bak$                  1;
+    ~*\.log$                  1;
+    ~*\.error$                1;
+    ~*\.cgi$                  1;
+    ~*\.py$                   1;
+    ~*\.pl$                   1;
+    ~*\.old$                  1;
+    ~*\.save$                 1;
+    ~*\.original$             1;
+    ~*^/\.(?!well-known).*    1;
+    ~*\.asa$              1;
+    ~*\.asax$             1;
+    ~*\.ascx$             1;
+    ~*\.backup$           1;
+    ~*\.bak$              1;
+    ~*\.bat$              1;
+    ~*\.cdx$              1;
+    ~*\.cer$              1;
+    ~*\.cfg$              1;
+    ~*\.cmd$              1;
+    ~*\.config$           1;
+    ~*\.conf$             1;
+    ~*\.cs$               1;
+    ~*\.csproj$           1;
+    ~*\.csr$              1;
+    ~*\.dat$              1;
+    ~*\.db$               1;
+    ~*\.dbf$              1;
+    ~*\.dist$             1;
+    ~*\.dll$              1;
+    ~*\.dos$              1;
+    ~*\.dpkg-dist$        1;
+    ~*\.htr$              1;
+    ~*\.htw$              1;
+    ~*\.ida$              1;
+    ~*\.idc$              1;
+    ~*\.idq$              1;
+    ~*\.inc$              1;
+    ~*\.ini$              1;
+    ~*\.key$              1;
+    ~*\.licx$             1;
+    ~*\.lnk$              1;
+    ~*\.log$              1;
+    ~*\.mdb$              1;
+    ~*\.pass$             1;
+    ~*\.pdb$              1;
+    ~*\.pem$              1;
+    ~*\.pol$              1;
+    ~*\.printer$          1;
+    ~*\.pwd$              1;
+    ~*\.rdb$              1;
+    ~*\.resources$        1;
+    ~*\.resx$             1;
+    ~*\.swp$              1;
+    ~*\.sys$              1;
+    ~*\.vb$               1;
+    ~*\.vbs$              1;
+    ~*\.vbproj$           1;
+    ~*\.vsdisco$          1;
+    ~*\.webinfo$          1;
+    ~*\.xsd$              1;
+    ~*\.xsx$              1;
+    ~*\.alfa$             1;
+}
+
+map \$http_user_agent \$is_bad_ua {
+    default 0;
+
+    ~*python 1;
+    ~*httpclient 1;
+    ~*httping 1;
+    ~*goose 1;
+    ~*grabber 1;
+    ~*gradle 1;
+    ~*mget 1;
+    ~*go-http 1;
+    ~*apache 1;
+    ~*java 1;
+    ~*async 1;
+    ~*attohttpc 1;
+    ~*aiohttp 1;
+    ~*axios 1;
+    ~*loadtest 1;
+    ~*headlesschrome 1;
+    ~*automaticwptester 1;
+    ~*puppeteer 1;
+    ~*selenium 1;
+    ~*sindresorhus 1;
+    ~*mastodon 1;
+    ~*scrapy 1;
+    ~*nmap 1;
+    ~*pangolin 1;
+    ~*openvas 1;
+    ~*masscan 1;
+    ~*nikto 1;
+    ~*netsparker 1;
+    ~*nessus 1;
+    ~*n-stealth 1;
+    ~*mysqloit 1;
+    ~*nuclei 1;
+    "~*sql\ power\ injector" 1;
+    "~*Frog\ SEO" 1;
+    ~*toata 1;
+    ~*vega 1;
+    ~*w3af 1;
+    ~*wfuzz 1;
+    ~*webvulnscan 1;
+    ~*whatweb 1;
+    "~*fuzz\ faster" 1;
+    "~*Go\!Zilla" 1;
+    "~*Go\-Ahead\-Got\-It" 1;
+    ~*arachni 1;
+    ~*betabot 1;
+    ~*bewica-security-scan 1;
+    ~*bfac 1;
+    ~*commix 1;
+    ~*detectify 1;
+    ~*fimap 1;
+    ~*havij 1;
+    ~*hexometer 1;
+    ~*jbrofuzz 1;
+    ~*jorgee 1;
+    ~*libwhisker 1;
+    ~*morfeus 1;
+    ~*mozlila 1;
+    ~*netlab360 1;
+    ~*sitelockspider 1;
+    ~*sqlmap 1;
+    ~*sysscan 1;
+    ~*webshag 1;
+    ~*wprecon 1;
+    ~*wpscan 1;
+    ~*zgrab 1;
+    ~*zmeu 1;
+    ~*libwww 1;
+    ~*urllib 1;
+    ~*Snoopy 1;
+    "~*URI\:\:Fetch" 1;
+    ~*PHPCrawl 1;
+    ~*MJ12bot 1;
+    ~*YisouSpider 1;
+    ~*ZyBorg 1;
+    ~*unirest-php 1;
+    ~*Barkrowler 1;
+    ~*Bytespider 1;
+    ~*AliyunSecBot 1;
+    ~*winhttp 1;
+    ~*WinHTTrack 1;
+    ~*Acunetix 1;
+    ~*BlackWidow 1;
+    ~*360Spider 1;
+    ~*ChinaClaw 1;
+    ~*Dotbot 1;
+    ~*paloaltonetworks 1;
+}
+END
+
+    cat>"/etc/nginx/conf.d/wp-security.conf"<<END
+location /sql { access_log off; log_not_found off; return 444; }
+location /wp-content/updraft { access_log off; log_not_found off; return 444; }
+location /wp-content/backups-dup-pro { access_log off; log_not_found off; return 444; }
+location /wp-snapshots { access_log off; log_not_found off; return 444; }
+location /wp-content/uploads/sucuri { access_log off; log_not_found off; return 444; }
+location /wp-content/uploads/nginx-helper { access_log off; log_not_found off; return 444; }
+location = /wp-config.php { access_log off; log_not_found off; return 444; }
+location = /wp-links-opml.php { access_log off; log_not_found off; return 444; }
+location = /wp-config-sample.php { access_log off; log_not_found off; return 444; }
+location = /readme.html { access_log off; log_not_found off; return 444; }
+location = /license.txt { access_log off; log_not_found off; return 444; }
+
+if (\$is_php_files_in_cache_dir = 1) {
+    return 444;
+}
+
+if (\$block_wp_includes = 1) {
+    return 444;
+}
+END
+
+    cat >'/etc/nginx/conf.d/skip-cache.conf'<<END
+map \$request_method \$skip_cache_method {
+    default 1;
+    GET     0;
+    HEAD    0;
+}
+
+map \$query_string \$skip_cache_query {
+    default 0;
+    ""      0;
+    ~.+     1;
+}
+
+map \$request_uri \$skip_cache_uri {
+    default 0;
+    ~*^/wp-admin/                     1;
+    ~*^/wp-json/                      1;
+    ~*/xmlrpc\.php                    1;
+    ~*wp-\w+\.php                     1;
+    ~*wp-comments-popup\.php          1;
+    ~*wp-links-opml\.php              1;
+    ~*wp-locations\.php               1;
+    ~*/?wc-ajax                       1;
+    ~*/feed/                          1;
+    ~*index\.php                      1;
+    ~*sitemap(_index)?\.xml           1;
+    ~*/[a-z0-9_-]+-sitemap([0-9]+)?\.xml$ 1;
+    ~*/shop(/.*)?$                    1;
+    ~*/cart(/.*)?$                    1;
+    ~*/store(/.*)?$                   1;
+    ~*/services(/.*)?$                1;
+    ~*/account(/.*)?$                 1;
+    ~*/myaccount(/.*)?$              1;
+    ~*/my-account(/.*)?$             1;
+    ~*/add-to-cart(/.*)?$            1;
+    ~*/checkout(/.*)?$               1;
+    ~*/wc-api(/.*)?$                 1;
+    ~*/order-tracking(/.*)?$         1;
+    ~*/addons(/.*)?$                 1;
+    ~*/admin                         1;
+    ~*/dang-nhap                    1;
+    ~*/quan-tri                     1;
+    ~*/login.php                    1;
+    ~*/login                        1;
+    ~*/logout                       1;
+    ~*/register                     1;
+    ~*/lost-password                1;
+    ~*/administrator                1;
+    ~*/api/                         1;
+    ~*litespeed\.php                1;
+    ~*/brand-ambassador/            1;
+    ~*/brand-ambassador-coupon/     1;
+    ~*/brand-ambassador-program/    1;
+    ~*/affiliateplusstatistic/      1;
+    ~*/brand-ambassador/index/listTransaction/       1;
+    ~*/brand-ambassador/index/paymentForm/           1;
+    ~*/brand-ambassador-program/index/index/         1;
+    ~*/brand-ambassador/banner/list/                 1;
+    ~*/brand-ambassador-coupon/index/index/          1;
+    ~*/brand-ambassador/refer/index/                 1;
+    ~*/brand-ambassador/index/payments/              1;
+    ~*/brand-ambassador/index/referrers/             1;
+    ~*/affiliateplusstatistic/statistic/index/       1;
+    ~*/brand-ambassador/account/edit/                1;
+    ~*/checkout/cart/                                1;
+    ~*/repeat-delivery                               1;
+}
+
+map \$http_cookie \$skip_cache_cookie {
+    default 0;
+    ~*PHPSESSID|SESSID=.*|sbjs_.*|wpmanga_.*|wptouch_.*|wpml_.*|wp_.*|wp-.*|wordpress.*|comment_.*|woocommerce_.*|store_notice|xf_|edd_|jetpack|woomotiv_.*|yith_.*|wpsc_|ecwid|ec_|bookly.*|external_no_cache=.*|adminhtml=.*|admin=.*|private_content_version=.*|tk_ai|xsrf-token|laravel_session|laravelsession|remember_web_|nv4_.* 1;
+}
+
+map "\$skip_cache_method\$skip_cache_query\$skip_cache_uri\$skip_cache_cookie" \$skip_cache {
+    default 0;
+    ~1      1;
+    ~.*1.*  1;
+}
+END
+
+    cat >'/etc/nginx/conf.d/wordpress/block-author-scan.conf'<<END
+if (\$block_author_enum = 1) {
+    return 444;
+}
+END
+
+    cat >'/etc/nginx/conf.d/wordpress/block-php-wp-content.conf'<<END
+if (\$block_php_in_wp_content = 1) {
+    return 444;
+}
+END
+
+    cat >'/etc/nginx/conf.d/wordpress/block-php-in-wp-plugins.conf'<<END
+if (\$block_php_in_wp_plugins = 1) {
+    return 444;
+}
+END
+
+    cat >'/etc/nginx/conf.d/wordpress/block-php-in-wp-themes.conf'<<END
+if (\$block_php_in_wp_themes = 1) {
+    return 444;
+}
+END
+
+    cat >'/etc/nginx/conf.d/wordpress/block-user-api.conf'<<END
+if (\$block_users_api = 1) {
+    return 444;
+}
+END
+
+    cat >'/etc/nginx/conf.d/wordpress/block-wp-xmlrpc.conf'<<END
+location = /xmlrpc.php { return 444; }
+END
+
+    cat >'/etc/nginx/nginx-fastcgi-cache.conf'<<END
+fastcgi_cache_key "\$scheme\$request_method\$host\$request_uri";
+fastcgi_ignore_headers Cache-Control Expires Set-Cookie;
+fastcgi_cache_min_uses 1;
+fastcgi_cache_use_stale error timeout updating invalid_header http_500 http_503;
+fastcgi_cache_lock on;
+fastcgi_cache_lock_age 5s;
+fastcgi_cache_lock_timeout 5s;
+fastcgi_cache_background_update on;
+proxy_cache_valid 200 1d;
+fastcgi_cache_valid 301 302 1h;
+fastcgi_cache_valid 404 1m;
+fastcgi_cache_valid 403 30s;
+fastcgi_cache_valid any 10m;
+fastcgi_cache_methods GET HEAD;
+fastcgi_cache_revalidate on;
+END
+}
+
+config_geoip2() {
+    GEO_CONFIG_FILE='/etc/nginx/nginx-geo.conf'
+
+    cat >"${GEO_CONFIG_FILE}" <<END
+geoip2 /etc/nginx/geo/country_asn.mmdb {
+    auto_reload 7d;
+    \$geoip2_data_continent continent;
+    \$geoip2_data_country_name country;
+    \$geoip2_asn asn;
+    \$geoip2_organization as_name;
+}
+END
+
+    {
+        while read -r ip; do
+            [[ -n "$ip" ]] && echo "geoip2_proxy $ip;"
+        done < "$CF_IPV4_FILE"
+
+        while read -r ip; do
+            [[ -n "$ip" ]] && echo "geoip2_proxy $ip;"
+        done < "$CF_IPV6_FILE"
+
+        echo "geoip2_proxy_recursive on;"
+    } >> "$GEO_CONFIG_FILE"
+}
+
+############################################
+# Some Tweak
+############################################
+
+config_sysctl() {
+    cp /etc/sysctl.conf /etc/sysctl.conf.bak
+    cat >"/etc/sysctl.conf" <<ENDsysctl
+# Increase size of file handles and inode cache
+fs.file-max = 209708
+
+# Do less swapping
+vm.swappiness = 1
+vm.dirty_ratio = 10
+vm.dirty_background_ratio = 5
+vm.vfs_cache_pressure=50
+
+# 50% overcommitment of available memory
+vm.overcommit_ratio = 50
+vm.overcommit_memory = 1
+
+# Use BBR TCP congestion control and set tcp_notsent_lowat to 16384 to ensure HTTP/2 prioritization works optimally
+# Do a 'modprobe tcp_bbr' first (kernel > 4.9)
+# Fall-back to htcp if bbr is unavailable (older kernels)
+# For servers with tcp-heavy workloads, enable 'fq' queue management scheduler (kernel > 3.12)
+net.core.default_qdisc = fq
+net.ipv4.tcp_congestion_control = bbr
+net.ipv4.tcp_notsent_lowat = 16384
+ENDsysctl
+
+    sysctl -p
+}
+
+config_logrotate() {
+    cat >"/etc/logrotate.d/mcnvps" <<END
+${DEFAULT_DIR_TOOL}/phpmyadmin/logs/*.log /var/log/sign-ssl/errors/*.log {
+    daily
+    dateext
+    dateformat -%Y-%m-%d
+    missingok
+    rotate 7
+    notifempty
+    create 640 root adm
+    minsize 50M
+    maxsize 200M
+    compress
+    delaycompress
+    sharedscripts
+}
+END
+
+    cat >"/etc/logrotate.d/nginx" <<END
+/var/log/nginx/*/*.log /home/*/*/logs/access/*.log /home/*/*/logs/errors/*.log {
+    daily
+    dateext
+    dateformat -%Y-%m-%d
+    missingok
+    rotate 14
+    notifempty
+    create 640 root adm
+    minsize 50M
+    maxsize 200M
+    compress
+    delaycompress
+    sharedscripts
+    postrotate
+        if [ -f /var/run/nginx.pid ]; then
+            kill -USR1 \`cat /var/run/nginx.pid\`
+        fi
+    endscript
+}
+END
+
+    cat >"/etc/logrotate.d/php${PHP_VERSION}-fpm" <<END
+/var/log/php-fpm/*/*.log /home/*/*/php/logs {
+    rotate 14
+    daily
+    dateext
+    dateformat -%Y-%m-%d
+    missingok
+    notifempty
+    minsize 50M
+    maxsize 500M
+    compress
+    delaycompress
+    sharedscripts
+    postrotate
+        if [ -x /usr/lib/php/php${PHP_VERSION}-fpm-reopenlogs ]; then
+            /usr/lib/php/php${PHP_VERSION}-fpm-reopenlogs;
+        fi
+    endscript
+}
+END
+
+    cat >"/etc/logrotate.d/mariadb" <<END
+/var/lib/mysql/mysqld.log /var/lib/mysql/mariadb.log /var/log/mysql/*.log {
+    #su mysql mysql
+    rotate 6
+    monthly
+    missingok
+    notifempty
+    compress
+    delaycompress
+    minsize 50M
+    maxsize 500M
+    sharedscripts
+    postrotate
+        if test -r /etc/mysql/debian.cnf
+        then
+            EXTRAPARAM='--defaults-file=/etc/mysql/debian.cnf'
+        fi
+
+        if test -x /usr/bin/mariadb-admin
+        then
+            /usr/bin/mariadb-admin \$EXTRAPARAM --local flush-error-log \
+                flush-engine-log flush-general-log flush-slow-log
+        fi
+    endscript
+}
+END
+}
+
+increase_command_history() {
+    sed -i "s/HISTSIZE=.*/HISTSIZE=20000/g" /root/.bashrc
+    sed -i "s/HISTFILESIZE=.*/HISTFILESIZE=20000/g" /root/.bashrc
+}
+
+fix_hosts_file() {
+    # shellcheck disable=SC2002
+    # shellcheck disable=SC2143
+    if [[ -z "$(cat /etc/hosts | grep '127.0.0.1.*.localhost')" ]]; then
+        echo "127.0.0.1 localhost" >> /etc/hosts
+    fi
+}
+
+fix_usr_sbin_sendmail() {
+    if [ ! -e '/usr/sbin/sendmail' ]; then
+        touch /usr/sbin/sendmail
+        chmod +x /usr/sbin/sendmail
+    fi
+}
+
+############################################
+# Setup FW
+############################################
+setup_nf_tables(){
+    apt purge firewalld -y
+    apt purge ufw -y
+    apt purge iptables -y
+    apt autoremove -y
+
+    if [ -z "$(which nft)" ]; then
+        apt-get install nftables -y
+        systemctl enable nftables.service
+    fi
+
+    if [ -e '/etc/nftables.conf' ]; then
+        mv /etc/nftables.conf /etc/nftables.conf.bak
+    fi
+
+    local ssh_port
+    ssh_port=$(detect_ssh_port)
+
+    cat >'/etc/nftables.conf'<<END
+#!/usr/sbin/nft -f
+
+flush ruleset
+
+table inet filter {
+    chain input {
+        type filter hook input priority filter;
+    }
+    chain forward {
+        type filter hook forward priority filter;
+    }
+    chain output {
+        type filter hook output priority filter;
+    }
+}
+
+table ip filter {
+    set allowed_tcp_ports {
+        type inet_service
+        elements = { 80, 443, 53, 110, 143, 993, 995, 465, 587, ${RANDOM_ADMIN_PORT}, ${ssh_port} }
+    }
+
+    set allowed_udp_ports {
+        type inet_service
+        elements = { 80, 443 }
+    }
+
+    set blocked_ips {
+        type ipv4_addr
+        flags interval
+    }
+
+    chain INVDROP {
+       counter drop
+    }
+
+    chain INVALID {
+        ct state invalid counter jump INVDROP
+        tcp flags ! fin,syn,rst,psh,ack,urg counter jump INVDROP
+        tcp flags fin,syn,rst,psh,ack,urg / fin,syn,rst,psh,ack,urg counter jump INVDROP
+        tcp flags fin,syn / fin,syn counter jump INVDROP
+        tcp flags syn,rst / syn,rst counter jump INVDROP
+        tcp flags fin,rst / fin,rst counter jump INVDROP
+        tcp flags fin / fin,ack counter jump INVDROP
+        tcp flags psh / psh,ack counter jump INVDROP
+        tcp flags urg / ack,urg counter jump INVDROP
+        tcp flags != syn / fin,syn,rst,ack ct state new counter jump INVDROP
+    }
+
+    chain block_port_by_ip {
+
+    }
+
+    chain allow_port_by_ip {
+
+    }
+
+    chain input {
+        type filter hook input priority filter; policy drop;
+
+        iifname "lo" counter accept
+
+        ip saddr @blocked_ips counter drop
+        ip saddr @blocked_ips icmp type echo-request counter drop
+
+        # Fragments Packets
+        ip frag-off & 8191 != 0 counter drop
+
+        iifname != "lo" meta l4proto tcp counter jump INVALID
+
+        iifname != "lo" ct state related,established counter accept
+
+        jump block_port_by_ip
+        jump allow_port_by_ip
+
+        iifname != "lo" meta l4proto udp ct state new udp dport @allowed_udp_ports counter accept
+        iifname != "lo" meta l4proto tcp ct state new tcp dport @allowed_tcp_ports counter accept
+        icmp type echo-request counter accept
+        counter drop
+    }
+
+    chain output {
+        type filter hook output priority filter; policy accept;
+    }
+
+    chain forward {
+        type filter hook forward priority filter; policy drop;
+    }
+}
+
+table ip6 filter {
+    set allowed_tcp_ports {
+        type inet_service
+        elements = { 80, 443, 53, 110, 143, 993, 995, 465, 587, ${RANDOM_ADMIN_PORT}, ${ssh_port} }
+    }
+
+    set allowed_udp_ports {
+        type inet_service
+        elements = { 80, 443 }
+    }
+
+    set blocked_ips {
+        type ipv6_addr
+        flags interval
+    }
+
+    chain INVDROP {
+       counter drop
+    }
+
+    chain INVALID {
+        ct state invalid counter jump INVDROP
+        tcp flags ! fin,syn,rst,psh,ack,urg counter jump INVDROP
+        tcp flags fin,syn,rst,psh,ack,urg / fin,syn,rst,psh,ack,urg counter jump INVDROP
+        tcp flags fin,syn / fin,syn counter jump INVDROP
+        tcp flags syn,rst / syn,rst counter jump INVDROP
+        tcp flags fin,rst / fin,rst counter jump INVDROP
+        tcp flags fin / fin,ack counter jump INVDROP
+        tcp flags psh / psh,ack counter jump INVDROP
+        tcp flags urg / ack,urg counter jump INVDROP
+        tcp flags != syn / fin,syn,rst,ack ct state new counter jump INVDROP
+    }
+
+    chain block_port_by_ip6 {
+
+    }
+
+    chain allow_port_by_ip6 {
+
+    }
+
+    chain input {
+        type filter hook input priority filter; policy drop;
+
+        iifname "lo" counter accept
+
+        ip6 saddr @blocked_ips counter drop
+        ip6 saddr @blocked_ips icmpv6 type echo-request counter drop
+
+        iifname != "lo" meta l4proto tcp counter jump INVALID
+
+        iifname != "lo" ct state related,established counter accept
+
+        jump block_port_by_ip6
+        jump allow_port_by_ip6
+
+        iifname != "lo" meta l4proto udp ct state new udp dport @allowed_udp_ports counter accept
+        iifname != "lo" meta l4proto tcp ct state new tcp dport @allowed_tcp_ports counter accept
+        icmpv6 type echo-request counter accept
+        counter drop
+    }
+
+    chain output {
+        type filter hook output priority filter; policy accept;
+    }
+
+    chain forward {
+        type filter hook forward priority filter; policy drop;
+    }
+}
+END
+
+    run_or_exit '' systemctl restart nftables
+}
+
+install_fail2ban() {
+    cd_dir "$BUILD_DIR"
+
+    dpkg -i "fail2ban_${FAIL2BAN_VER}_all.deb"
+    delete_file "fail2ban_${FAIL2BAN_VER}_all.deb"
+
+    if [ -z "$(which fail2ban-client)" ]; then
+        clear
+        echo "${RED}❌ Khong the cai dat fail2ban${NC}"
+        sleep 5
+    fi
+
+    #safe_apt_install "cac goi thu vien can thiet cho he thong va build toolchain" fail2ban
+
+    cp /etc/fail2ban/jail.{conf,local}
+
+    cat >"/etc/fail2ban/filter.d/phpmyadmin-authlog.conf" <<END
+[INCLUDES]
+
+before = common.conf
+
+[Definition]
+
+failregex = ^%(__prefix_line)suser denied: \S+ \(mysql-denied\) from <HOST>\s*$
+
+ignoreregex =
+END
+
+    cat >"/etc/fail2ban/jail.d/00-defaults-debian.local" <<END
+[DEFAULT]
+ignoreip   = 127.0.0.1
+destemail  = ${ADMIN_EMAIL}
+sender     = ${ADMIN_EMAIL}
+bantime    = 4h
+findtime   = 15m
+banaction  = nftables-multiport
+banaction_allports = nftables-allports
+END
+
+    cat >"/etc/fail2ban/jail.d/phpmyadmin-authlog.local" <<END
+[phpmyadmin-authlog]
+enabled  = true
+filter   = phpmyadmin-authlog
+port     = ${RANDOM_ADMIN_PORT}
+logpath  = ${DEFAULT_DIR_TOOL}/phpmyadmin/logs/auth_fail.log
+maxretry = 5
+END
+
+    local ssh_port
+    ssh_port=$(detect_ssh_port)
+
+    cat >"/etc/fail2ban/jail.d/sshd.local" <<END
+[sshd]
+enabled  = true
+filter   = sshd
+port     = ${ssh_port}
+bantime  = 24h
+logpath  = %(sshd_log)s
+maxretry = 5
+END
+
+    #sed -i "s|^#allowipv6 =.*|allowipv6 = auto|g" /etc/fail2ban/fail2ban.conf
+
+    systemctl restart fail2ban
+    systemctl enable fail2ban
+}
+
+############################################
+# Restrict apt install, apt upgrade
+############################################
+apt_mark_hold() {
+    if [[ ! -d '/etc/apt/preferences.d' ]]; then
+        apt-mark hold nginx nginx-core nginx-common nginx-full fail2ban mariadb-server mariadb-backup
+    else
+        cat <<EOF >/etc/apt/preferences.d/mcnvps-custom-hold
+Package: nginx*
+Pin: release *
+Pin-Priority: -1
+
+Package: fail2ban
+Pin: release *
+Pin-Priority: -1
+
+Package: mariadb-server
+Pin: release *
+Pin-Priority: -1
+
+Package: mariadb-backup
+Pin: release *
+Pin-Priority: -1
+EOF
+    fi
+}
+
+############################################
+# Write Info
+############################################
+create_menu_bin(){
+    cat >"/usr/bin/mcnvps"<<END
+#!/bin/bash
+
+######################################################################
+#           Auto Install & Optimize LEMP Stack on Ubuntu             #
+#                                                                    #
+#                Author: Sanvv - MCN Technical                    #
+#                  Website: https://mcnvps.net                        #
+#                                                                    #
+#              Please do not remove copyright. Thank!                #
+#  Please do not copy under any circumstance for commercial reason!  #
+######################################################################
+
+_download_mcn_menu() {
+    if [[ ! -d "${BASH_DIR}" ]]; then
+        mkdir -p "${BASH_DIR}"
+    fi
+
+    cd "${BASH_DIR}"
+    rm -rf ./server-manager
+
+    if [[ -f "server-manager.zip" ]]; then
+        rm -f ./server-manager.zip
+    fi
+
+    wget '${UPDATE_LINK}/server-manager.zip'
+
+    if [[ -f "server-manager.zip" ]]; then
+        unzip server-manager.zip
+        rm -f ./server-manager.zip
+        chmod +x server-manager/* server-manager/*/* server-manager/*/*/*
+        dos2unix server-manager/* server-manager/*/* server-manager/*/*/*
+
+        source "${BASH_DIR}/server-manager/routes/main_menu.sh" && main_menu || {
+            clear
+            echo "Da xay ra loi. Khong the download McnVPS Menu"
+        }
+    else
+        clear
+        echo "Da xay ra loi. Khong the download McnVPS Menu"
+    fi
+}
+
+source "${BASH_DIR}/server-manager/routes/main_menu.sh" && main_menu || {
+    _download_mcn_menu
+}
+END
+    chmod +x /usr/bin/mcnvps
+}
+
+write_info() {
+
+
+    touch "${FILE_INFO}"
+    {
+        echo "script_version=${SCRIPTS_VERSION}"
+        echo "admin_port=${RANDOM_ADMIN_PORT}"
+        echo "mysql_user=sqladmin"
+        echo "mysql_admin_pwd=${SQL_ADMIN_PASS}"
+        echo "mysql_root_pwd=${SQL_ROOT_PASS}"
+        echo "admin_email=${ADMIN_EMAIL}"
+        echo "webserver=nginx"
+        echo "lang=vi"
+    } >>"${FILE_INFO}"
+
+    touch /etc/mcnvps.lock
+    chmod 600 "${FILE_INFO}" /etc/mcnvps.lock
+
+    cat >"/root/.my.cnf"<<END
+[client]
+user='root'
+password='${SQL_ROOT_PASS}'
+END
+    chmod 600 /root/.my.cnf
+}
+
+_add_cronjob() {
+    local pattern="$1"
+    local line="$2"
+
+    crontab -l 2>/dev/null | grep -v "$pattern" > /tmp/mycron.$$ || true
+
+    echo "$line" >> /tmp/mycron.$$
+
+    crontab /tmp/mycron.$$
+    rm -f /tmp/mycron.$$
+}
+
+create_cronjob() {
+    if [ -e '/var/mcnvps/server-manager/cronjob/mcnvps_backup' ]; then
+        chmod +x /var/mcnvps/server-manager/cronjob/mcnvps_backup
+        _add_cronjob "/mcnvps_backup" \
+            '0 3 * * * /var/mcnvps/server-manager/cronjob/mcnvps_backup >/dev/null 2>&1'
+    fi
+
+    if [ -e '/root/.acme.sh/acme.sh' ]; then
+        _add_cronjob "/acme\.sh" \
+            '0 0 * * * "/root/.acme.sh"/acme.sh --cron --home "/root/.acme.sh" >/dev/null 2>&1'
+    fi
+
+    _add_cronjob "sign_new_ssl\.bash" \
+        '* * * * * /usr/bin/bash /var/mcnvps/server-manager/cronjob/sign_new_ssl.bash >/dev/null 2>&1'
+
+    _add_cronjob "update_cf_ip\.bash" \
+            '30 0 * * * /usr/bin/bash /var/mcnvps/server-manager/cronjob/update_cf_ip.bash >/dev/null 2>&1'
+
+    _add_cronjob "wp_cron\.bash" \
+        '15 0 * * * /usr/bin/bash /var/mcnvps/server-manager/cronjob/wp_cron.bash >/dev/null 2>&1'
+
+    _add_cronjob "service_notify\.bash" \
+            '* * * * * /usr/bin/bash /var/mcnvps/server-manager/cronjob/service_notify.bash >/dev/null 2>&1'
+}
+
+############################################
+# Check Condition
+############################################
+
+if [[ "$(id -u)" != "0" ]]; then
+    printf "${RED}%s${NC}\n" "${ROOT_ERR}"
+    printf "${RED}%s${NC}\n" "${CANCEL_INSTALL}"
+    exit
+fi
+
+if [[ "${CPU_ARCHITECTURE}" != 'x86_64' && "${CPU_ARCHITECTURE}" != 'amd64' ]]; then
+    printf "${RED}%s${NC}\n" "${CPU_NOT_SUPPORT}"
+    printf "${RED}%s${NC}\n" "${CANCEL_INSTALL}"
+    exit
+fi
+
+if [[ ${RAM_TOTAL} -lt ${LOW_RAM} ]]; then
+    printf "${RED}%s${NC}\n" "${RAM_NOT_ENOUGH}"
+    printf "${RED}%s${NC}\n" "${CANCEL_INSTALL}"
+    exit
+fi
+
+if [[ "$ID" == "ubuntu" ]]; then
+    if [[ ! " ${UBUNTU_OS_VERSION_LIST[*]} " =~ (^|[[:space:]])${VERSION_ID}([[:space:]]|$) ]]; then
+        printf "${RED}%s${NC}\n" "${WRONG_VERSION}"
+        printf "${RED}%s${NC}\n" "${CANCEL_INSTALL}"
+        exit
+    fi
+elif [[ "$ID" == "debian" ]]; then
+    if [[ ! " ${DEBIAN_OS_VERSION_LIST[*]} " =~ (^|[[:space:]])${VERSION_ID}([[:space:]]|$) ]]; then
+        printf "${RED}%s${NC}\n" "${WRONG_VERSION}"
+        printf "${RED}%s${NC}\n" "${CANCEL_INSTALL}"
+        exit 1
+    fi
+else
+    printf "${RED}%s${NC}\n" "${WRONG_OS}"
+    printf "${RED}%s${NC}\n" "${CANCEL_INSTALL}"
+    exit
+fi
+
+if [[ -n "$(which nginx)" || -n "$(which mysql)" || -n "$(which mysqld)" || -n "$(which mariadb)" || -n "$(which docker)" ]]; then
+    printf "${RED}%s${NC}\n" "${SERVICE_EXISTS}"
+    printf "${RED}%s${NC}\n" "${CANCEL_INSTALL}"
+    exit
+fi
+
+_write_log
+
+if [[ -z "$(which wget)" || -z "$(which curl)" || -z "$(which perl)" ]]; then
+    # shellcheck disable=SC2059
+    printf "${RED}Missing Wget or Curl or Perl${NC}\n"
+    exit 1
+fi
+
+############################################
+# Begin Install
+############################################
+
+download_requirement_module
+
+install_nginx
+install_mariadb
+install_php
+install_php_ext
+install_phpmyadmin
+
+php_memory_calculation
+php_parameter
+
+self_signed_ssl
+php_global_config
+mcnvps_custom_ini
+php_opcache
+config_my_cnf
+config_nginx
+config_geoip2
+
+config_sysctl
+config_logrotate
+increase_command_history
+fix_hosts_file
+fix_usr_sbin_sendmail
+
+setup_nf_tables
+install_fail2ban
+
+install_wp_cli_packages
+
+apt_mark_hold
+
+#ssh_login_notify
+add_alias_command
+create_menu_bin
+write_info
+
+create_cronjob
+
+systemctl daemon-reload
+systemctl restart nginx
+systemctl enable nginx
+systemctl restart mariadb
+systemctl enable mariadb
+systemctl restart php"${PHP_VERSION}"-fpm
+systemctl enable php"${PHP_VERSION}"-fpm
+source /root/.bashrc
+rm -rf "${BUILD_DIR}"
+
+clear
+printf "=========================================================================\n"
+printf "                    Cai dat thanh cong Ubuntu LEMP Stack                 \n"
+printf "                 File luu thong tin: %s\n" "${FILE_INFO}"
+printf "          Neu can ho tro vui long truy cap %s\n" "${FACEBOOK}"
+printf "==========================================================================\n"
+printf "              Luu lai thong tin duoi day de phpMyAdmin                    \n"
+printf "==========================================================================\n"
+printf "PHP Version                  : PHP %s\n" "${PHP_VERSION}"
+printf "Link phpMyAdmin              : %s\n" "http://${IPADDRESS}:${RANDOM_ADMIN_PORT}/phpmyadmin"
+printf "User phpMyAdmin              : sqladmin\n"
+printf "Password phpMyAdmin          : %s\n" "${SQL_ADMIN_PASS}"
+printf ""
+printf "Go lenh ${RED}mcnvps${NC} hoac ${RED}mcn${NC} de mo menu\n"
+printf ""
+printf "=========================================================================\n"
+
+echo -e "${RED}⚠️  He thong sẽ khoi dong lai sau 5 giây. Vui long đung thao tac gi trong luc nay!${NC}"
+for i in {5..1}; do
+    echo -ne "${RED}⏳ $i...${NC}\r"
+    sleep 1
+done
+
+echo -e "\n🔁 Dang khoi dong lai..."
+
+init 6
