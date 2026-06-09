@@ -14,7 +14,7 @@ if ! declare -f extract_key_value >/dev/null 2>&1; then
     source "${MENU_DIR}/helpers/function.sh"
 fi
 
-MCNVPS_GITHUB_ZIP="https://github.com/phongnhadn1991/McnVPS/raw/master/scripts/server-manager.zip"
+MCNVPS_GITHUB_ZIP="https://raw.githubusercontent.com/phongnhadn1991/McnVPS/master/scripts/server-manager.zip"
 
 update_menu() {
     msg "$ICON_TOOL Dang tai server-manager moi nhat tu GitHub..."
