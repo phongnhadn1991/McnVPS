@@ -14,7 +14,8 @@ if ! declare -f extract_key_value >/dev/null 2>&1; then
     source "${MENU_DIR}/helpers/function.sh"
 fi
 
-MCNVPS_GITHUB_ZIP="https://raw.githubusercontent.com/phongnhadn1991/McnVPS/master/scripts/server-manager.zip"
+MCNVPS_GITHUB_REPO="phongnhadn1991/McnVPS"
+MCNVPS_GITHUB_ZIP_PATH="scripts/server-manager.zip"
 
 update_menu() {
     msg "$ICON_TOOL Dang tai server-manager moi nhat tu GitHub..."
@@ -22,10 +23,14 @@ update_menu() {
     cd_dir "${HOSTVN_DIR}"
     rm -f server-manager.zip
 
+    local latest_sha
+    latest_sha=$(curl -s "https://api.github.com/repos/${MCNVPS_GITHUB_REPO}/commits/master" \
+        | grep '"sha"' | head -1 | sed 's/.*"sha": "\([^"]*\)".*/\1/')
+
+    local download_url="https://raw.githubusercontent.com/${MCNVPS_GITHUB_REPO}/${latest_sha}/${MCNVPS_GITHUB_ZIP_PATH}"
+
     wget --timeout=30 --tries=3 --waitretry=2 --retry-connrefused \
-        --header="Cache-Control: no-cache" \
-        --header="Pragma: no-cache" \
-        -O "server-manager.zip" "${MCNVPS_GITHUB_ZIP}" || {
+        -O "server-manager.zip" "${download_url}" || {
         msg "$ICON_EXIT Khong the tai server-manager.zip. Vui long kiem tra ket noi!" "red"
         press_enter_to_continue; return 0
     }
