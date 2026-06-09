@@ -3,14 +3,13 @@
 ######################################################################
 #           Auto Install & Optimize LEMP Stack on Ubuntu             #
 #                                                                    #
-#                Author: Sanvv - HOSTVN Technical                    #
-#                  Website: https://hostvn.vn                        #
+#                      McnVPS - MCN Technical                        #
+#                       Website: https://mcnvps.net                  #
 #                                                                    #
 #              Please do not remove copyright. Thank!                #
 #  Please do not copy under any circumstance for commercial reason!  #
 ######################################################################
 
-wget "https://scripts.hostvn.net/ubuntu/install_new"	
-rm -rf install
+wget -O install_new "https://raw.githubusercontent.com/phongnhadn1991/McnVPS/master/scripts/install_new"
 bash install_new
 rm -rf install_new
