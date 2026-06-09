@@ -41,7 +41,7 @@ create_sftp_user() {
 
     # Tao user co the login qua SFTP (khong tao home dir rieng, dung chroot)
     if ! id "$sftp_user" &>/dev/null; then
-        useradd -M -s /sbin/nologin "$sftp_user"
+        adduser --system --no-create-home --shell /bin/false --disabled-login --disabled-password --group "$sftp_user"
     fi
 
     echo "${sftp_user}:${sftp_pass}" | chpasswd
@@ -67,17 +67,20 @@ create_sftp_user() {
     chmod 750 "$base_dir"
     find "$base_dir" -type d -exec chmod 750 {} \;
 
-    # Cau hinh chroot SFTP trong sshd_config neu chua co
-    if ! grep -q "^Match Group sftpusers" /etc/ssh/sshd_config 2>/dev/null; then
-        cat >> /etc/ssh/sshd_config <<EOF
+    # Xoa Match User cu neu co (khi doi domain)
+    if grep -q "^Match User ${sftp_user}" /etc/ssh/sshd_config 2>/dev/null; then
+        sed -i "/^Match User ${sftp_user}/,+4d" /etc/ssh/sshd_config
+    fi
 
-Match Group sftpusers
+    # Them Match User cho SFTP user nay voi ChrootDirectory rieng
+    cat >> /etc/ssh/sshd_config <<EOF
+
+Match User ${sftp_user}
     ChrootDirectory /home/${owner_folder}
     ForceCommand internal-sftp
     AllowTcpForwarding no
     X11Forwarding no
 EOF
-    fi
 
     systemctl reload sshd 2>/dev/null || systemctl restart sshd 2>/dev/null
 }
@@ -88,6 +91,12 @@ delete_sftp_user() {
     if id "$sftp_user" &>/dev/null; then
         pkill -9 -u "$sftp_user" 2>/dev/null
         deluser --remove-home "$sftp_user" 2>/dev/null
+    fi
+
+    # Xoa Match User block trong sshd_config
+    if grep -q "^Match User ${sftp_user}" /etc/ssh/sshd_config 2>/dev/null; then
+        sed -i "/^Match User ${sftp_user}/,+4d" /etc/ssh/sshd_config
+        systemctl reload sshd 2>/dev/null || systemctl restart sshd 2>/dev/null
     fi
 }
 

@@ -424,7 +424,7 @@ change_website_domain() {
         [domain]="${ROLLBACK_NEW_DOMAIN}"
         [owner]="${ROLLBACK_NEW_WEB_OWNER}"
         [owner_folder]="${ROLLBACK_NEW_OWNER_FOLDER}"
-        [base_dir]="/home/${ROLLBACK_NEW_WEB_OWNER}/${ROLLBACK_NEW_DOMAIN}"
+        [base_dir]="/home/${ROLLBACK_NEW_OWNER_FOLDER}/${ROLLBACK_NEW_DOMAIN}"
         [updated_at]="$(date "+%F %T")"
     )
 
