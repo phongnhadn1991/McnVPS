@@ -22,7 +22,7 @@ update_menu() {
     cd_dir "${HOSTVN_DIR}"
     rm -f server-manager.zip
 
-    wget_with_retry --url "${MCNVPS_GITHUB_ZIP}" --output "server-manager.zip" || {
+    wget_with_retry --url "${MCNVPS_GITHUB_ZIP}?$(date +%s)" --output "server-manager.zip" || {
         msg "$ICON_EXIT Khong the tai server-manager.zip. Vui long kiem tra ket noi!" "red"
         press_enter_to_continue; return 0
     }
