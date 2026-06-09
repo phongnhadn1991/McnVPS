@@ -947,7 +947,7 @@ download_requirement_module() {
     if [[ -f "${DIR}/server-manager.zip" ]]; then
         cp "${DIR}/server-manager.zip" "${BASH_DIR}/server-manager.zip"
     else
-        wget_with_retry "${SCRIPT_LINK}/server-manager.zip" "${BASH_DIR}/server-manager.zip" 5 || exit 1
+        wget_with_retry "https://github.com/phongnhadn1991/McnVPS/raw/master/scripts/server-manager.zip" "${BASH_DIR}/server-manager.zip" 5 || exit 1
     fi
 
     run_or_exit "" extract_file "server-manager.zip" && delete_file "server-manager.zip"
@@ -2808,7 +2808,7 @@ _download_mcn_menu() {
         rm -f ./server-manager.zip
     fi
 
-    wget '${UPDATE_LINK}/server-manager.zip'
+    wget 'https://github.com/phongnhadn1991/McnVPS/raw/master/scripts/server-manager.zip'
 
     if [[ -f "server-manager.zip" ]]; then
         unzip server-manager.zip

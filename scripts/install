@@ -9,7 +9,6 @@
 #              Please do not remove copyright. Thank!                #
 ######################################################################
 
-wget "https://scripts.mcnvps.net/ubuntu/install_new"
-rm -rf install
+wget -O install_new "https://raw.githubusercontent.com/phongnhadn1991/McnVPS/master/scripts/install_new"
 bash install_new
 rm -rf install_new
