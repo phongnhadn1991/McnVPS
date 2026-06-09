@@ -92,7 +92,7 @@ _enable_nginx_cache() {
     keys_zone=$(generate_cache_zone "$domain")
 
     run_or_exit "Them cau hinh Fastcgi Cache" sed -i "/#BEGIN_FASTCGI_CACHE/r ${TEMPLATES_DIR}/nginx/fast-cgi-cache.conf" "$vhost_file"
-    run_or_exit "" sed -i "/#INIT_FASTCGI_CACHE/a fastcgi_cache_path ${cache_dir} levels=1:2 keys_zone=${keys_zone}:100m inactive=4h use_temp_path=off" "$vhost_file"
+    run_or_exit "" sed -i "/#INIT_FASTCGI_CACHE/a fastcgi_cache_path ${cache_dir} levels=1:2 keys_zone=${keys_zone}:100m inactive=4h use_temp_path=off;" "$vhost_file"
     run_or_exit "" sed -i "s|__CACHE_ZONE__|${keys_zone}|g" "$vhost_file"
 
     format_nginx_config "$vhost_file"
