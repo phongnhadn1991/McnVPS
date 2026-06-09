@@ -37,7 +37,5 @@ change_domain_website() {
 
     change_website_domain "$old_domain" "$new_domain"
     nginx_reload
-
-    msg "$ICON_CHECK Thay doi ten mien thanh cong: ${old_domain} -> ${new_domain}" "green"
-    press_enter_to_continue; return 0
+    return 0
 }

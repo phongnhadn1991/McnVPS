@@ -426,8 +426,8 @@ set_site_dir_permission() {
     done
 
     if [[ ! -d "/home/${owner_folder}" || ! -d "/home/${owner_folder}/${domain}" ]]; then
-        msg "$ICON_EXIT Thu muc /home/${owner_folder} hoac /home/${owner_folder}/${domain} khong ton tai"
-        exit 1
+        msg "$ICON_WARNING Thu muc /home/${owner_folder}/${domain} khong ton tai, bo qua set permission"
+        return 0
     fi
 
     local base_dir

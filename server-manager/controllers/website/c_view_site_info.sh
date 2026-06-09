@@ -56,5 +56,38 @@ view_website_details() {
         echo "${GREEN}SFTP Password            :${NC} ${RED}$sftp_pass${NC}"
         echo "${GREEN}SFTP Directory           :${NC} ${RED}/${domain}/public_html${NC}"
     fi
+
+    if [[ "$website_source" == "wordpress" && -f "${base_dir}/public_html/wp-config.php" ]]; then
+        echo ""
+        echo "${GREEN}--- WordPress Admin ---${NC}"
+        local wp_token wp_admin_login wp_site_url wp_login_file wp_login_url
+        wp_token=$(openssl rand -hex 16)
+        wp_admin_login=$(cd "${base_dir}/public_html" && wp --allow-root user list --role=administrator --fields=user_login --format=csv 2>/dev/null | tail -n +2 | head -1)
+        wp_site_url=$(cd "${base_dir}/public_html" && wp --allow-root option get siteurl 2>/dev/null)
+        wp_login_file="${base_dir}/public_html/mcn_login_${wp_token}.php"
+
+        cat > "$wp_login_file" << 'PHPEOF'
+<?php
+require_once dirname(__FILE__).'/wp-load.php';
+$users = get_users(['role'=>'administrator','number'=>1]);
+if (!empty($users)) {
+    wp_set_auth_cookie($users[0]->ID, true);
+}
+unlink(__FILE__);
+wp_redirect(admin_url());
+exit;
+PHPEOF
+
+        chown "${owner}:${owner}" "$wp_login_file" 2>/dev/null
+        chmod 644 "$wp_login_file"
+
+        wp_login_url="${wp_site_url}/mcn_login_${wp_token}.php"
+
+        if [[ -n "$wp_admin_login" ]]; then
+            echo "${GREEN}WP Admin User            :${NC} ${RED}${wp_admin_login}${NC}"
+        fi
+        echo "${GREEN}Dang nhap nhanh (1 lan)  :${NC} ${RED}${wp_login_url}${NC}"
+    fi
+
     press_enter_to_continue; return 0
 }

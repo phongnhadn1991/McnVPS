@@ -42,6 +42,7 @@ website_menu() {
         echo "${BLUE}12. Phan quyen website${NC}"
         echo "${BLUE}13. Xem thong tin website${NC}"
         echo "${BLUE}14. Redirect HTTP to HTTPs${NC}"
+        echo "${BLUE}15. Deploy Website${NC}"
         echo "${RED}----------------------------------${NC}"
         echo "${GREEN}0.${NC} $ICON_BACK ${GREEN}Quay lai menu chinh${NC}"
         read -rp "${BLUE}Chon mot tuy chon:${NC} " website_choice
@@ -61,6 +62,7 @@ website_menu() {
             12) fix_website_permission ;;
             13) view_website_details ;;
             14) http_to_https ;;
+            15) deploy_website ;;
             0) main_menu ;;
             *) msg "$ICON_EXIT Lua chon khong hop le!"; sleep 1 ;;
         esac

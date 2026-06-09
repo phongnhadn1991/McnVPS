@@ -3,8 +3,8 @@
 ##############################################################################################################
 #                             Auto Install & Optimize LEMP Stack on Ubuntu                                   #
 #                                                                                                            #
-#                                    Author: Sanvv - MCN Technical                                        #
-#                                        Website: https://mcnvps.net                                          #
+#                                    Author: Sanvv - HOSTVN Technical                                        #
+#                                        Website: https://hostvn.vn                                          #
 #                                                                                                            #
 #                                  Please do not remove copyright. Thank!                                    #
 #  Copying or using this content for any commercial purpose is strictly prohibited under all circumstances!  #
@@ -282,10 +282,32 @@ _change_site_domain_success() {
      CHANGE_WEBSITE_DOMAIN_NEED_ROLLBACK=false
      trap - EXIT
 
+     local new_domain="${ROLLBACK_NEW_DOMAIN}"
+     local new_owner_folder="${ROLLBACK_NEW_OWNER_FOLDER}"
+
      unset ROLLBACK_OLD_DOMAIN ROLLBACK_OLD_VHOST ROLLBACK_OLD_PHP_POOL ROLLBACK_OLD_OWNER_FOLDER ROLLBACK_OLD_WEB_OWNER \
         ROLLBACK_SITE_CONF_BACKUP_DIR ROLLBACK_NEW_DOMAIN ROLLBACK_NEW_OWNER_FOLDER ROLLBACK_NEW_WEB_OWNER
 
+     # Load thong tin moi tu settings file
+     local db_name db_user db_pass sftp_user sftp_pass php_version
+     source "${WEB_DATA_DIR}/${new_domain}/.settings.conf" 2>/dev/null
+
      msg "$ICON_CHECK Thay doi ten mien thanh cong!" 'green'
+     echo "---------------------------"
+     echo "Domain moi    : ${new_domain}"
+     echo "Web Dir       : /home/${new_owner_folder}/${new_domain}/public_html"
+     echo "URL           : https://${new_domain}"
+     if [[ -n "$db_name" ]]; then
+         echo "Database      : ${db_name}"
+         echo "DB User       : ${db_user}"
+         echo "DB Password   : ${db_pass}"
+     fi
+     if [[ -n "$sftp_user" ]]; then
+         echo "SFTP User     : ${sftp_user}"
+         echo "SFTP Password : ${sftp_pass}"
+     fi
+     echo "PHP Version   : ${php_version}"
+     echo "---------------------------"
      press_enter_to_continue
  }
 
@@ -390,57 +412,8 @@ change_website_domain() {
 
     delete_file "$ROLLBACK_OLD_PHP_POOL"
 
-    ## Rename linux user (group) thay vi tao moi
-    if id "${ROLLBACK_OLD_WEB_OWNER}" &>/dev/null; then
-        usermod -l "${ROLLBACK_NEW_WEB_OWNER}" "${ROLLBACK_OLD_WEB_OWNER}" 2>/dev/null || true
-        groupmod -n "${ROLLBACK_NEW_WEB_OWNER}" "${ROLLBACK_OLD_WEB_OWNER}" 2>/dev/null || true
-    else
-        create_system_user "${ROLLBACK_NEW_WEB_OWNER}" "${ROLLBACK_NEW_OWNER_FOLDER}" 'false'
-    fi
-
-    ## Doi ten SFTP user neu co
-    local old_sftp_user="sftp_${ROLLBACK_OLD_WEB_OWNER}"
-    local new_sftp_user="sftp_${ROLLBACK_NEW_WEB_OWNER}"
-    local new_sftp_pass=""
-    if id "${old_sftp_user}" &>/dev/null; then
-        usermod -l "${new_sftp_user}" "${old_sftp_user}" 2>/dev/null || true
-        usermod -d "/home/${new_sftp_user}" "${new_sftp_user}" 2>/dev/null || true
-        if [ -d "/home/${old_sftp_user}" ]; then
-            mv "/home/${old_sftp_user}" "/home/${new_sftp_user}" 2>/dev/null || true
-        fi
-        # Lay pass sftp cu tu settings de cap nhat
-        new_sftp_pass="${sftp_pass}"
-    fi
-
-    ## Rename Database va DB user
-    local old_db_name="${db_name}"
-    local old_db_user="${db_user}"
-    local new_db_name="${ROLLBACK_NEW_WEB_OWNER}_db"
-    local new_db_user="${ROLLBACK_NEW_WEB_OWNER}_user"
-    if [[ -n "$old_db_name" && "$old_db_name" != "$new_db_name" ]]; then
-        # Tao db moi, copy data, xoa db cu
-        mariadb -u root -p"$(grep password /root/.my.cnf | cut -d"'" -f2)" \
-            -e "CREATE DATABASE IF NOT EXISTS \`${new_db_name}\`;" 2>/dev/null || true
-        mariadb -u root -p"$(grep password /root/.my.cnf | cut -d"'" -f2)" \
-            -e "RENAME TABLE \`${old_db_name}\`.\`$(mariadb -u root -p"$(grep password /root/.my.cnf | cut -d"'" -f2)" -se "SHOW TABLES FROM \`${old_db_name}\`;" 2>/dev/null | head -1)\`" 2>/dev/null || true
-        # Dump va import
-        local db_pass_val="${db_pass}"
-        mysqldump -u root -p"$(grep password /root/.my.cnf | cut -d"'" -f2)" \
-            "${old_db_name}" 2>/dev/null | \
-            mariadb -u root -p"$(grep password /root/.my.cnf | cut -d"'" -f2)" \
-            "${new_db_name}" 2>/dev/null || true
-        mariadb -u root -p"$(grep password /root/.my.cnf | cut -d"'" -f2)" \
-            -e "DROP DATABASE IF EXISTS \`${old_db_name}\`;" 2>/dev/null || true
-    fi
-
-    if [[ -n "$old_db_user" && "$old_db_user" != "$new_db_user" ]]; then
-        local db_pass_val="${db_pass}"
-        mariadb -u root -p"$(grep password /root/.my.cnf | cut -d"'" -f2)" \
-            -e "CREATE USER IF NOT EXISTS '${new_db_user}'@'localhost' IDENTIFIED BY '${db_pass_val}';
-                GRANT ALL PRIVILEGES ON \`${new_db_name}\`.* TO '${new_db_user}'@'localhost';
-                DROP USER IF EXISTS '${old_db_user}'@'localhost';
-                FLUSH PRIVILEGES;" 2>/dev/null || true
-    fi
+    ## Edit user linux
+    create_system_user "${ROLLBACK_NEW_WEB_OWNER}" "${ROLLBACK_NEW_OWNER_FOLDER}" 'false'
 
     ## Rename user folder
     run_or_exit "" mv "${WEB_DATA_DIR}/${ROLLBACK_OLD_DOMAIN}" "${WEB_DATA_DIR}/${ROLLBACK_NEW_DOMAIN}"
@@ -451,10 +424,7 @@ change_website_domain() {
         [domain]="${ROLLBACK_NEW_DOMAIN}"
         [owner]="${ROLLBACK_NEW_WEB_OWNER}"
         [owner_folder]="${ROLLBACK_NEW_OWNER_FOLDER}"
-        [base_dir]="/home/${ROLLBACK_NEW_OWNER_FOLDER}/${ROLLBACK_NEW_DOMAIN}"
-        [db_name]="${new_db_name}"
-        [db_user]="${new_db_user}"
-        [sftp_user]="${new_sftp_user}"
+        [base_dir]="/home/${ROLLBACK_NEW_WEB_OWNER}/${ROLLBACK_NEW_DOMAIN}"
         [updated_at]="$(date "+%F %T")"
     )
 
@@ -470,8 +440,7 @@ change_website_domain() {
     restart_specific_php_ver "$php_version"
     nginx_reload
 
-    # Xoa SSL cert thu muc cu
-    rm -rf "${SSL_CERT_DIR}/${ROLLBACK_OLD_DOMAIN}" 2>/dev/null || true
+    delete_linux_user "${ROLLBACK_OLD_WEB_OWNER}"
 
     msg "$ICON_SEARCH Dang kiem tra cau hinh. Vui long doi..."
 
