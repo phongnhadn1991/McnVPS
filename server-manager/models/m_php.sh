@@ -182,12 +182,18 @@ php_admin_value[open_basedir] = /tmp/:/var/tmp/:/dev/urandom:/usr/share/php/:/de
 security.limit_extensions = .php
 END
 
+    local opcache_jit_config="opcache.jit=disable"
+    if [[ "${PHP_MAJOR_VERSION}" -gt 8 ]] || [[ "${PHP_MAJOR_VERSION}" -eq 8 && "${PHP_MINOR_VERSION}" -ge 1 ]]; then
+        opcache_jit_config="opcache.jit=tracing
+opcache.jit_buffer_size=${OPCACHE_JIT_BUFFER}M"
+    fi
+
      cat >"${PHP_MODULES_PATH}/opcache.ini" <<EOphp_opcache
 zend_extension=opcache.so
-opcache.jit=disable
+${opcache_jit_config}
 opcache.enable=1
 opcache.memory_consumption=${OPCACHE_MEM}
-opcache.interned_strings_buffer=8
+opcache.interned_strings_buffer=${OPCACHE_STRINGS_BUFFER}
 opcache.max_wasted_percentage=5
 opcache.max_accelerated_files=65407
 opcache.revalidate_freq=180

@@ -20,6 +20,8 @@
 | 2026-06-09 | `c_view_site_info.sh`: thêm section "WordPress Admin" — hiển thị username admin và link đăng nhập nhanh 1 lần (tạo file PHP tạm dùng `wp_set_auth_cookie`, file tự xóa sau khi click, không thay đổi mật khẩu cũ) |
 | 2026-06-09 | `c_view_site_info.sh`: bỏ section WordPress Admin dùng `get_password_reset_key` (yêu cầu đặt pass mới) → thay bằng file PHP tạm token random, click 1 lần vào thẳng wp-admin, file tự xóa |
 | 2026-06-09 | VPS Tools > Thông báo Telegram: đã cấu hình bot token + chat ID, test gửi tin nhắn thành công — tự động cảnh báo khi CPU/RAM/disk quá ngưỡng hoặc service down |
+| 2026-06-09 | `controllers/update/c_update_script.sh`: fix Update Script — bỏ logic check version qua `scripts.mcnvps.net` (domain chưa tồn tại), thay bằng download thẳng `server-manager.zip` từ GitHub |
+| 2026-06-09 | `models/m_website.sh` `change_website_domain`: fix SFTP — xóa SFTP user cũ và tạo SFTP user mới cho domain mới, cập nhật `sftp_user`/`sftp_pass` vào settings.conf |
 | 2026-06-09 | `controllers/backup/c_backup_site.sh`: thêm chức năng **Backup thủ công từng site** — chọn domain → backup source (tar.gz) + DB (sql.gz) vào `/backup/<domain>/<datetime>/` |
 | 2026-06-09 | `controllers/backup/c_restore_site.sh`: thêm chức năng **Restore thủ công từng site** — chọn domain → liệt kê bản backup local → chọn ngày → chọn loại restore (full/source/database); tự động cập nhật `wp-config.php` (DB_NAME/DB_USER/DB_PASSWORD); nếu restore sang domain mới thì `wp search-replace` toàn bộ DB (cả http lẫn https); nếu cùng domain thì chỉ update `siteurl`/`home` |
 | 2026-06-09 | `routes/r_backup.sh`: thêm menu item 3 (Backup thủ công) và 4 (Restore thủ công) vào backup_menu |
@@ -28,6 +30,8 @@
 | 2026-06-08 | `m_website.sh` `_change_site_domain_success`: hiển thị thông tin đầy đủ sau đổi domain (URL, DB, SFTP, PHP) |
 | 2026-06-08 | `m_website.sh` `change_website_domain`: **REVERTED về code gốc hostvn** — quá nhiều edge case (user/group rename, DB rename, owner_folder conflict). Chỉ giữ fix `press_enter_to_continue` thay `exit 0`. Workflow thay thế: clone domain mới → xóa domain cũ | khi group đã bị đổi tên trước, thêm fallback `groupadd` + `usermod -g` để đảm bảo group luôn tồn tại đúng tên |
 | 2026-06-08 | `m_website.sh` `change_website_domain`: fix thứ tự — rename user (`usermod -l`) phải chạy TRƯỚC `create_php_pool`, vì PHP pool cần user tồn tại để `restart_specific_php_ver` pass |
+| 2026-06-09 | `helpers/php_variables.sh`: thêm biến `OPCACHE_JIT_BUFFER` và `OPCACHE_STRINGS_BUFFER` vào `memory_calculation()` — scale theo RAM (JIT: 32-256MB, strings: 8-32MB) |
+| 2026-06-09 | `models/m_php.sh` `_install_php_ext`: bật OPcache JIT tự động cho PHP >= 8.1 (`opcache.jit=tracing` + `jit_buffer_size` scale theo RAM), PHP < 8.1 giữ `jit=disable`. Thay `interned_strings_buffer` cố định 8MB bằng biến `${OPCACHE_STRINGS_BUFFER}` scale theo RAM |
 | 2026-06-08 | `m_website.sh` `change_website_domain`: fix `mv` owner_folder bị lọt vào bên trong khi thư mục đích đã tồn tại (same owner_folder khác domain) — kiểm tra trước, nếu đích tồn tại thì move nội dung thay vì rename |
 | 2026-06-08 | `helpers/function.sh` `set_site_dir_permission`: đổi `exit 1` → `return 0` với warning khi thư mục không tồn tại, tránh crash toàn bộ flow |
 | 2026-06-08 | `m_website.sh` `change_website_domain`: fix lỗi `wp search-replace` thất bại do `wp-config.php` vẫn dùng DB cũ sau khi rename DB — thêm `wp config set DB_NAME` và `wp config set DB_USER` trước khi chạy search-replace |
