@@ -450,7 +450,7 @@ change_website_domain() {
     fi
     new_sftp_user="sftp_$(generate_user_from_domain "${ROLLBACK_NEW_DOMAIN}")"
     new_sftp_pass=$(gen_pass)
-    create_sftp_user "$new_sftp_user" "$new_sftp_pass" "${ROLLBACK_NEW_DOMAIN}" "${ROLLBACK_NEW_OWNER_FOLDER}"
+    create_sftp_user "$new_sftp_user" "$new_sftp_pass" "${ROLLBACK_NEW_DOMAIN}" "${ROLLBACK_NEW_OWNER_FOLDER}" "/home/${ROLLBACK_NEW_OWNER_FOLDER}/${ROLLBACK_NEW_DOMAIN}"
     declare -A sftp_setting_vars=(
         [sftp_user]="${new_sftp_user}"
         [sftp_pass]="${new_sftp_pass}"

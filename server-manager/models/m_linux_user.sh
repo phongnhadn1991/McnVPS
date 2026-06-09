@@ -37,7 +37,7 @@ create_sftp_user() {
     local sftp_pass="$2"
     local domain="$3"
     local owner_folder="$4"
-    local base_dir="/home/${owner_folder}/${domain}"
+    local base_dir="${5:-/home/${owner_folder}/${domain}}"
 
     # Tao user co the login qua SFTP
     if ! id "$sftp_user" &>/dev/null; then
