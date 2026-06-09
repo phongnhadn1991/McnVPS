@@ -39,9 +39,9 @@ create_sftp_user() {
     local owner_folder="$4"
     local base_dir="${5:-/home/${owner_folder}/${domain}}"
 
-    # Tao user co the login qua SFTP
+    # Tao user co the login qua SFTP (khong tao home dir rieng, dung chroot)
     if ! id "$sftp_user" &>/dev/null; then
-        useradd -m -s /bin/bash -d "/home/${sftp_user}" "$sftp_user"
+        useradd -M -s /sbin/nologin "$sftp_user"
     fi
 
     echo "${sftp_user}:${sftp_pass}" | chpasswd
