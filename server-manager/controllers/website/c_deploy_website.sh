@@ -72,6 +72,17 @@ deploy_website() {
     # Deploy source
     if [[ -n "$source_file" ]]; then
         msg "$ICON_TOOL Dang giai nen source code..."
+
+        # Move file backup ra thu muc tam truoc khi xoa public_html
+        local tmp_dir
+        tmp_dir=$(mktemp -d)
+        mv "$source_file" "${tmp_dir}/"
+        [[ -n "$db_file" ]] && mv "$db_file" "${tmp_dir}/"
+        local source_filename
+        source_filename=$(basename "$source_file")
+        source_file="${tmp_dir}/${source_filename}"
+        [[ -n "$db_file" ]] && db_file="${tmp_dir}/$(basename "$db_file")"
+
         rm -rf "${public_html:?}/"
         mkdir -p "$public_html"
 
@@ -83,16 +94,17 @@ deploy_website() {
                 : # thanh cong giai nen vao base_dir (cau truc co public_html ben trong)
             else
                 msg "$ICON_EXIT Giai nen source that bai"
+                rm -rf "$tmp_dir"
                 press_enter_to_continue; return 0
             fi
         elif [[ "$source_file" == *.zip ]]; then
             if ! unzip -q "$source_file" -d "$public_html" 2>/dev/null; then
                 msg "$ICON_EXIT Giai nen source that bai"
+                rm -rf "$tmp_dir"
                 press_enter_to_continue; return 0
             fi
         fi
 
-        # Xoa file backup source khoi public_html sau khi giai nen
         rm -f "$source_file"
         msg "$ICON_CHECK Giai nen source thanh cong" 'green'
     fi
@@ -128,10 +140,11 @@ deploy_website() {
 
         if [[ "$import_ok" == true ]]; then
             msg "$ICON_CHECK Import database thanh cong" 'green'
-            # Xoa file backup DB sau khi import
             rm -f "$db_file"
+            rm -rf "$tmp_dir"
         else
             msg "$ICON_EXIT Import database that bai"
+            rm -rf "$tmp_dir"
             press_enter_to_continue; return 0
         fi
 
