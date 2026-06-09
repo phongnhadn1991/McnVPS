@@ -442,6 +442,21 @@ change_website_domain() {
 
     delete_linux_user "${ROLLBACK_OLD_WEB_OWNER}"
 
+    ## Xu ly SFTP user: xoa cu, tao moi cho domain moi
+    local old_sftp_user new_sftp_user new_sftp_pass
+    old_sftp_user=$(grep "^sftp_user=" "${WEB_DATA_DIR}/${ROLLBACK_NEW_DOMAIN}/.settings.conf" 2>/dev/null | cut -d"'" -f2)
+    if [[ -n "$old_sftp_user" ]]; then
+        delete_sftp_user "$old_sftp_user"
+    fi
+    new_sftp_user="sftp_$(generate_user_from_domain "${ROLLBACK_NEW_DOMAIN}")"
+    new_sftp_pass=$(gen_pass)
+    create_sftp_user "$new_sftp_user" "$new_sftp_pass" "${ROLLBACK_NEW_WEB_OWNER}" "${ROLLBACK_NEW_DOMAIN}"
+    declare -A sftp_setting_vars=(
+        [sftp_user]="${new_sftp_user}"
+        [sftp_pass]="${new_sftp_pass}"
+    )
+    update_site_setting_vars "${WEB_DATA_DIR}/${ROLLBACK_NEW_DOMAIN}/.settings.conf" sftp_setting_vars
+
     msg "$ICON_SEARCH Dang kiem tra cau hinh. Vui long doi..."
 
     set_site_dir_permission --owner "${ROLLBACK_NEW_WEB_OWNER}" --owner_folder "${ROLLBACK_NEW_OWNER_FOLDER}" --domain "${ROLLBACK_NEW_DOMAIN}"
