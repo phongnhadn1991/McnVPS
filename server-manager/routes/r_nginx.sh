@@ -25,6 +25,7 @@ nginx_menu() {
         echo "${BLUE}2. Restart Nginx${NC}"
         echo "${BLUE}3. Stop Nginx${NC}"
         echo "${BLUE}4. Rebuild Nginx${NC}"
+        echo "${BLUE}5. Rewrite Nginx Vhost${NC}"
         echo "${RED}----------------------------------${NC}"
         echo "${GREEN}0.${NC} $ICON_BACK ${GREEN}Quay lai menu chinh${NC}"
         read -rp "${BLUE}Chon mot tuy chon:${NC} " nginx_choice
@@ -34,6 +35,7 @@ nginx_menu() {
             2) restart_nginx ;;
             3) stop_nginx ;;
             4) rebuild_nginx ;;
+            5) rewrite_nginx_vhost ;;
             0) main_menu ;;
             *) echo "${RED}$ICON_EXIT Lua chon khong hop le!${NC}"; sleep 1 ;;
         esac
