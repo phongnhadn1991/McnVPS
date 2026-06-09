@@ -152,6 +152,7 @@ nginx_fast_cgi_cache() {
         msg "${ICON_SUCCESS} Thao tac thanh cong"
     fi
 
+    press_enter_to_continue
     nginx_cache_menu
 }
 
@@ -179,5 +180,6 @@ delete_nginx_cache() {
         msg "${ICON_SUCCESS} Da xoa toan bo cache cho website ${GREEN}${domain}${NC}" 'green'
     fi
 
+    press_enter_to_continue
     nginx_cache_menu
 }
