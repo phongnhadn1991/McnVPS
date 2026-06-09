@@ -74,12 +74,53 @@ rewrite_nginx_vhost() {
         sleep 0.5
     fi
 
-    file_settings="${WEB_DATA_DIR}/${domain}/.settings.conf"
+    local file_settings="${WEB_DATA_DIR}/${domain}/.settings.conf"
 
     # shellcheck disable=SC1090
     source "$file_settings" || {
-        trap - EXIT
         msg "$ICON_EXIT Khong the load file cau hinh: ${domain}"
-        exit 1
+        press_enter_to_continue; return 0
     }
+
+    local vhost_file="${SITE_AVAILABLE_DIR}/${domain}.conf"
+    local vhost_backup="${vhost_file}.bak.$(date +%d-%m-%Y-%H%M%S)"
+
+    cp "$vhost_file" "$vhost_backup"
+
+    delete_vhost "$domain"
+
+    generate_nginx_vhost \
+        --domain        "$domain" \
+        --owner         "$owner" \
+        --owner_folder  "$owner_folder" \
+        --base_dir      "/home/${owner_folder}/${domain}" \
+        --website_source "$website_source"
+
+    local cert_dir="${SSL_CERT_DIR}/${domain}"
+    local cert_file="${cert_dir}/${SSL_CERT_FILE_NAME}"
+    local key_file="${cert_dir}/${SSL_KEY_FILE_NAME}"
+
+    if [[ -f "$cert_file" && -f "$key_file" ]]; then
+        sed -i '/^\s*ssl_certificate\s\+[^;]*;/d' "$vhost_file"
+        sed -i '/^\s*ssl_certificate_key\s\+[^;]*;/d' "$vhost_file"
+        sed -i "/#SSL_CERT/a\    ssl_certificate ${cert_file};\n    ssl_certificate_key ${key_file};" "$vhost_file"
+    fi
+
+    enable_nginx_vhost "$domain"
+
+    if ! test_nginx_config; then
+        msg "$NGINX_T_REPLY"
+        msg "${ICON_WARNING} Nginx config loi. Dang rollback..."
+        delete_vhost "$domain"
+        cp "$vhost_backup" "$vhost_file"
+        enable_nginx_vhost "$domain"
+        nginx_reload
+        press_enter_to_continue; return 0
+    fi
+
+    delete_file "$vhost_backup"
+    nginx_reload
+    msg "${ICON_SUCCESS} Rewrite vhost cho ${GREEN}${domain}${NC} thanh cong!"
+    press_enter_to_continue
+    nginx_menu
 }
