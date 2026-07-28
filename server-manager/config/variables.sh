@@ -61,7 +61,7 @@ BUILD_DIR="/tmp/build"
 MENU_NAME="mcnvps"
 AUTHOR="MCNVPS.NET"
 AUTHOR_WEB="MCNVPS.NET"
-HOMEPAGE_LINK="https://scripts.mcnvps.net"
+HOMEPAGE_LINK="https://scripts.hostvn.net"
 
 OS_LINK="${HOMEPAGE_LINK}/ubuntu"
 
