@@ -58,22 +58,33 @@ _setup_telegram_bot() {
     clear_screen
     echo "${GREEN}=== Cau hinh Telegram Bot ===${NC}"
     echo ""
-    echo "Tao bot tai @BotFather tren Telegram, lay BOT_TOKEN."
-    echo "Lay Chat ID tai @userinfobot hoac @getidsbot."
+    echo "${BLUE}Buoc 1: Tao Bot tren Telegram${NC}"
+    echo "  1. Mo Telegram, tim @BotFather"
+    echo "  2. Gui lenh /newbot"
+    echo "  3. Dat ten cho bot (vd: McnVPS Bot)"
+    echo "  4. Dat username cho bot (vd: mcnvps_bot)"
+    echo "  5. BotFather se tra ve BOT_TOKEN (dang: 123456789:ABCdef...)"
+    echo ""
+    echo "${BLUE}Buoc 2: Lay Chat ID cua ban${NC}"
+    echo "  1. Mo Telegram, tim @userinfobot hoac @getidsbot"
+    echo "  2. Gui /start — bot se tra ve Chat ID cua ban (vd: 352725269)"
+    echo "  3. Neu muon gui thong bao vao group: them bot vao group,"
+    echo "     gui 1 tin nhan, Chat ID group la so am (vd: -1001234567890)"
     echo ""
 
     local bot_token chat_ids bot_mode
 
-    read -rp "Nhap BOT_TOKEN [0=thoat]: " bot_token
+    read -rp "Nhap BOT_TOKEN (tu BotFather) [0=thoat]: " bot_token
     [[ -z "$bot_token" || "$bot_token" == "0" ]] && return
 
-    read -rp "Nhap ALLOWED_CHAT_IDS (cach nhau boi dau phay): " chat_ids
+    read -rp "Nhap Chat ID (nhieu ID cach nhau boi dau phay): " chat_ids
     [[ -z "$chat_ids" ]] && { msg "$ICON_EXIT Chat ID khong duoc de trong"; press_enter_to_continue; return; }
 
     echo ""
-    echo "Chon che do bot:"
-    echo "  1. notify - Chi gui thong bao (an toan)"
-    echo "  2. menu   - Dieu khien server qua Telegram (can than)"
+    echo "${BLUE}Buoc 3: Chon che do hoat dong${NC}"
+    echo "  1. notify - Chi gui thong bao khi dich vu chet, dia day (an toan)"
+    echo "  2. menu   - Dieu khien server qua Telegram: restart service,"
+    echo "              xem domain, VPS info... (chi admin moi duoc thao tac)"
     read -rp "Chon [1/2, mac dinh=1]: " mode_choice
 
     case "$mode_choice" in
