@@ -2923,6 +2923,10 @@ create_menu_bin(){
 #  Please do not copy under any circumstance for commercial reason!  #
 ######################################################################
 
+if [[ "\$(id -u)" != "0" ]]; then
+    exec sudo "\$0" "\$@"
+fi
+
 _download_mcn_menu() {
     if [[ ! -d "${BASH_DIR}" ]]; then
         mkdir -p "${BASH_DIR}"
