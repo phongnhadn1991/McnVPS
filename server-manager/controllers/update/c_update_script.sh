@@ -40,10 +40,18 @@ update_menu() {
         press_enter_to_continue; return 0
     fi
 
+    if [[ -d "server-manager/telegram_bot/venv" ]]; then
+        mv server-manager/telegram_bot/venv /tmp/_mcnvps_venv_backup
+    fi
+
     rm -rf server-manager
     unzip -q server-manager.zip && rm -f server-manager.zip
     chmod +x server-manager/* server-manager/*/* server-manager/*/*/* 2>/dev/null
     dos2unix server-manager/* server-manager/*/* server-manager/*/*/* 2>/dev/null
+
+    if [[ -d /tmp/_mcnvps_venv_backup ]]; then
+        mv /tmp/_mcnvps_venv_backup server-manager/telegram_bot/venv
+    fi
 
     msg "$ICON_CHECK Cap nhat McnVPS thanh cong!" "green"
     press_enter_to_continue; return 0
