@@ -51,7 +51,7 @@ view_website_details() {
         echo ""
         echo "${GREEN}--- SFTP ---${NC}"
         echo "${GREEN}SFTP Host                :${NC} ${RED}${IP_ADDRESS}${NC}"
-        echo "${GREEN}SFTP Port                :${NC} ${RED}22${NC}"
+        echo "${GREEN}SFTP Port                :${NC} ${RED}$(detect_ssh_port)${NC}"
         echo "${GREEN}SFTP User                :${NC} ${RED}$sftp_user${NC}"
         echo "${GREEN}SFTP Password            :${NC} ${RED}$sftp_pass${NC}"
         echo "${GREEN}SFTP Directory           :${NC} ${RED}/${domain}/public_html${NC}"

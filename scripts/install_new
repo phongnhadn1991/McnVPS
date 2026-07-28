@@ -1678,8 +1678,8 @@ http {
     ssl_dyn_rec_enable on;
 
     # https://mozilla.github.io/server-side-tls/ssl-config-generator/ intermediate configuration.
-    ssl_protocols TLSv1.1 TLSv1.2 TLSv1.3;
-    ssl_ciphers 'ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES256-GCM-SHA384:DHE-RSA-AES128-GCM-SHA256:DHE-DSS-AES128-GCM-SHA256:kEDH+AESGCM:ECDHE-RSA-AES128-SHA256:ECDHE-ECDSA-AES128-SHA256:ECDHE-RSA-AES128-SHA:ECDHE-ECDSA-AES128-SHA:ECDHE-RSA-AES256-SHA384:ECDHE-ECDSA-AES256-SHA384:ECDHE-RSA-AES256-SHA:ECDHE-ECDSA-AES256-SHA:DHE-RSA-AES128-SHA256:DHE-RSA-AES128-SHA:DHE-DSS-AES128-SHA256:DHE-RSA-AES256-SHA256:DHE-DSS-AES256-SHA:DHE-RSA-AES256-SHA:ECDHE-RSA-DES-CBC3-SHA:ECDHE-ECDSA-DES-CBC3-SHA:AES128-GCM-SHA256:AES256-GCM-SHA384:AES128-SHA256:AES256-SHA256:AES128-SHA:AES256-SHA:AES:CAMELLIA:DES-CBC3-SHA:!aNULL:!eNULL:!EXPORT:!DES:!RC4:!MD5:!PSK:!aECDH:!EDH-DSS-DES-CBC3-SHA:!EDH-RSA-DES-CBC3-SHA:!KRB5-DES-CBC3-SHA';
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384;
     ssl_prefer_server_ciphers on;
     resolver             1.1.1.1 1.0.0.1 8.8.8.8 8.8.4.4 valid=10m;
     resolver_timeout     5s;
@@ -2362,6 +2362,11 @@ END
 ############################################
 
 config_sysctl() {
+    if systemd-detect-virt -c -q 2>/dev/null; then
+        echo "Container detected, skipping kernel hardening"
+        return
+    fi
+
     cp /etc/sysctl.conf /etc/sysctl.conf.bak
     cat >"/etc/sysctl.conf" <<ENDsysctl
 # Increase size of file handles and inode cache
@@ -2377,13 +2382,67 @@ vm.vfs_cache_pressure=50
 vm.overcommit_ratio = 50
 vm.overcommit_memory = 1
 
-# Use BBR TCP congestion control and set tcp_notsent_lowat to 16384 to ensure HTTP/2 prioritization works optimally
-# Do a 'modprobe tcp_bbr' first (kernel > 4.9)
-# Fall-back to htcp if bbr is unavailable (older kernels)
-# For servers with tcp-heavy workloads, enable 'fq' queue management scheduler (kernel > 3.12)
+# === KERNEL SECURITY ===
+kernel.sysrq = 0
+kernel.core_uses_pid = 1
+kernel.randomize_va_space = 2
+kernel.kptr_restrict = 1
+fs.suid_dumpable = 0
+vm.mmap_min_addr = 4096
+
+# === NETWORK SECURITY ===
+# Anti-spoofing
+net.ipv4.conf.default.rp_filter = 1
+net.ipv4.conf.all.rp_filter = 1
+
+# Disable IP forwarding
+net.ipv4.ip_forward = 0
+net.ipv6.conf.all.forwarding = 0
+
+# Disable source routing
+net.ipv4.conf.all.accept_source_route = 0
+net.ipv6.conf.all.accept_source_route = 0
+
+# Disable ICMP redirects
+net.ipv4.conf.all.send_redirects = 0
+net.ipv4.conf.default.send_redirects = 0
+net.ipv4.conf.all.accept_redirects = 0
+net.ipv4.conf.default.accept_redirects = 0
+net.ipv6.conf.all.accept_redirects = 0
+net.ipv6.conf.default.accept_redirects = 0
+
+# SYN flood protection
+net.ipv4.tcp_syncookies = 1
+net.ipv4.tcp_syn_retries = 2
+net.ipv4.tcp_synack_retries = 2
+net.ipv4.tcp_max_syn_backlog = 4096
+
+# TCP hardening
+net.ipv4.tcp_fin_timeout = 7
+net.ipv4.tcp_keepalive_time = 300
+net.ipv4.tcp_keepalive_probes = 5
+net.ipv4.tcp_keepalive_intvl = 15
+net.ipv4.tcp_rfc1337 = 1
+
+# Ignore ICMP broadcasts & bogus errors
+net.ipv4.icmp_echo_ignore_broadcasts = 1
+net.ipv4.icmp_ignore_bogus_error_responses = 1
+
+# Log martian packets
+net.ipv4.conf.all.log_martians = 1
+net.ipv4.conf.default.log_martians = 1
+
+# === NETWORK PERFORMANCE ===
 net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
 net.ipv4.tcp_notsent_lowat = 16384
+net.core.somaxconn = 32768
+net.core.netdev_max_backlog = 16384
+net.ipv4.tcp_max_tw_buckets = 1440000
+net.ipv4.tcp_tw_reuse = 1
+net.ipv4.tcp_slow_start_after_idle = 0
+net.ipv4.tcp_fastopen = 3
+net.ipv4.ip_local_port_range = 16384 65535
 ENDsysctl
 
     sysctl -p
@@ -2715,7 +2774,7 @@ END
 
     cat >"/etc/fail2ban/jail.d/00-defaults-debian.local" <<END
 [DEFAULT]
-ignoreip   = 127.0.0.1
+ignoreip   = 127.0.0.1 ::1
 destemail  = ${ADMIN_EMAIL}
 sender     = ${ADMIN_EMAIL}
 bantime    = 4h
@@ -2743,6 +2802,34 @@ filter   = sshd
 port     = ${ssh_port}
 bantime  = 24h
 logpath  = %(sshd_log)s
+maxretry = 5
+END
+
+    cat >"/etc/fail2ban/jail.d/nginx-limit-req.local" <<END
+[nginx-limit-req]
+enabled  = true
+filter   = nginx-limit-req
+port     = http,https
+logpath  = /var/log/nginx/error.log
+maxretry = 10
+END
+
+    cat >"/etc/fail2ban/jail.d/nginx-botsearch.local" <<END
+[nginx-botsearch]
+enabled  = true
+filter   = nginx-botsearch
+port     = http,https
+logpath  = /var/log/nginx/access.log
+maxretry = 5
+END
+
+    cat >"/etc/fail2ban/jail.d/recidive.local" <<END
+[recidive]
+enabled  = true
+filter   = recidive
+logpath  = /var/log/fail2ban.log
+bantime  = 1w
+findtime = 1d
 maxretry = 5
 END
 
