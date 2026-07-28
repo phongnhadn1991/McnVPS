@@ -99,8 +99,8 @@ BOT_MODE="${bot_mode}"
 EOF
     chmod 600 "${TELEGRAM_BOT_CONF}"
 
-    if ! command -v python3 &>/dev/null; then
-        msg "$ICON_TOOL Dang cai dat Python3..."
+    if ! command -v python3 &>/dev/null || ! python3 -m venv --help &>/dev/null; then
+        msg "$ICON_TOOL Dang cai dat Python3 va python3-venv..."
         apt-get update -y >/dev/null 2>&1
         apt-get install -y python3 python3-venv python3-pip >/dev/null 2>&1
     fi
