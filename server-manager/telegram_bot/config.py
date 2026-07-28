@@ -1,11 +1,11 @@
 """Cau hinh McnVPS Telegram bot.
 
 Doc /var/mcnvps/.telegram_bot.conf (dinh dang bash KEY="value"):
-    BOT_TOKEN="..."
-    ALLOWED_CHAT_IDS="352725269,-1004333782002"
-    BOT_MODE="menu"            # notify | menu
-    ADMIN_IDS="352725269"
-    USER_FEATURES="123:domain,db;456:svc"
+    BOT_TOKEN="YOUR_BOT_TOKEN_HERE"
+    ALLOWED_CHAT_IDS="YOUR_CHAT_ID_1,YOUR_CHAT_ID_2"
+    BOT_MODE="menu"                                      # notify | menu
+    ADMIN_IDS="YOUR_ADMIN_CHAT_ID"                       # (tuy chon) mac dinh = ALLOWED
+    USER_FEATURES="CHAT_ID:feature1,feature2;..."        # (tuy chon) phan quyen theo user
 """
 from __future__ import annotations
 
