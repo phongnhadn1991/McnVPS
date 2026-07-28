@@ -233,12 +233,12 @@ async def _handle_menu_action(edit, cid, group, action, query) -> None:
     elif group == "vps":
         if action == "info":
             info = await _async_sh(
-                "echo \"Hostname: $(hostname)\n"
-                "IP: $(curl -s4 ifconfig.me)\n"
-                "OS: $(lsb_release -ds 2>/dev/null || cat /etc/os-release | grep PRETTY | cut -d= -f2)\n"
-                "Uptime: $(uptime -p)\n"
-                "CPU: $(nproc) cores\n"
-                "RAM: $(free -h | awk '/Mem/{print $3\\\"/\\\"$2}')\"", 15)
+                'echo "Hostname: $(hostname)\n'
+                'IP: $(curl -s4 ifconfig.me)\n'
+                'OS: $(lsb_release -ds 2>/dev/null || cat /etc/os-release | grep PRETTY | cut -d= -f2)\n'
+                'Uptime: $(uptime -p)\n'
+                'CPU: $(nproc) cores\n'
+                "RAM: $(free -h | awk '/Mem/{print $3\"/\"$2}')\"", 15)
             await edit(texts.title(C.E["vps"], "VPS Info") + "\n" + texts.pre(info))
         elif action == "disk":
             info = await _async_sh("df -h / | tail -1 | awk '{print \"Used: \"$3\" / \"$2\" (\"$5\")\"}'", 10)
