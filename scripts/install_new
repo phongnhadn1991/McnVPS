@@ -86,6 +86,46 @@ CF_IPV4_FILE="${BUILD_DIR}/cloudflare_ipv4.txt"
 CF_IPV6_FILE="${BUILD_DIR}/cloudflare_ipv6.txt"
 
 ############################################
+# Check Condition (early exit before any privileged operations)
+############################################
+
+if [[ "$(id -u)" != "0" ]]; then
+    printf "${RED}%s${NC}\n" "${ROOT_ERR}"
+    printf "${RED}%s${NC}\n" "${CANCEL_INSTALL}"
+    exit
+fi
+
+if [[ "${CPU_ARCHITECTURE}" != 'x86_64' && "${CPU_ARCHITECTURE}" != 'amd64' ]]; then
+    printf "${RED}%s${NC}\n" "${CPU_NOT_SUPPORT}"
+    printf "${RED}%s${NC}\n" "${CANCEL_INSTALL}"
+    exit
+fi
+
+if [[ ${RAM_TOTAL} -lt ${LOW_RAM} ]]; then
+    printf "${RED}%s${NC}\n" "${RAM_NOT_ENOUGH}"
+    printf "${RED}%s${NC}\n" "${CANCEL_INSTALL}"
+    exit
+fi
+
+if [[ "$ID" == "ubuntu" ]]; then
+    if [[ ! " ${UBUNTU_OS_VERSION_LIST[*]} " =~ (^|[[:space:]])${VERSION_ID}([[:space:]]|$) ]]; then
+        printf "${RED}%s${NC}\n" "${WRONG_VERSION}"
+        printf "${RED}%s${NC}\n" "${CANCEL_INSTALL}"
+        exit
+    fi
+elif [[ "$ID" == "debian" ]]; then
+    if [[ ! " ${DEBIAN_OS_VERSION_LIST[*]} " =~ (^|[[:space:]])${VERSION_ID}([[:space:]]|$) ]]; then
+        printf "${RED}%s${NC}\n" "${WRONG_VERSION}"
+        printf "${RED}%s${NC}\n" "${CANCEL_INSTALL}"
+        exit 1
+    fi
+else
+    printf "${RED}%s${NC}\n" "${WRONG_OS}"
+    printf "${RED}%s${NC}\n" "${CANCEL_INSTALL}"
+    exit
+fi
+
+############################################
 # Function
 ############################################
 _write_log() {
@@ -2982,46 +3022,6 @@ create_cronjob() {
     _add_cronjob "service_notify\.bash" \
             '* * * * * /usr/bin/bash /var/mcnvps/server-manager/cronjob/service_notify.bash >/dev/null 2>&1'
 }
-
-############################################
-# Check Condition
-############################################
-
-if [[ "$(id -u)" != "0" ]]; then
-    printf "${RED}%s${NC}\n" "${ROOT_ERR}"
-    printf "${RED}%s${NC}\n" "${CANCEL_INSTALL}"
-    exit
-fi
-
-if [[ "${CPU_ARCHITECTURE}" != 'x86_64' && "${CPU_ARCHITECTURE}" != 'amd64' ]]; then
-    printf "${RED}%s${NC}\n" "${CPU_NOT_SUPPORT}"
-    printf "${RED}%s${NC}\n" "${CANCEL_INSTALL}"
-    exit
-fi
-
-if [[ ${RAM_TOTAL} -lt ${LOW_RAM} ]]; then
-    printf "${RED}%s${NC}\n" "${RAM_NOT_ENOUGH}"
-    printf "${RED}%s${NC}\n" "${CANCEL_INSTALL}"
-    exit
-fi
-
-if [[ "$ID" == "ubuntu" ]]; then
-    if [[ ! " ${UBUNTU_OS_VERSION_LIST[*]} " =~ (^|[[:space:]])${VERSION_ID}([[:space:]]|$) ]]; then
-        printf "${RED}%s${NC}\n" "${WRONG_VERSION}"
-        printf "${RED}%s${NC}\n" "${CANCEL_INSTALL}"
-        exit
-    fi
-elif [[ "$ID" == "debian" ]]; then
-    if [[ ! " ${DEBIAN_OS_VERSION_LIST[*]} " =~ (^|[[:space:]])${VERSION_ID}([[:space:]]|$) ]]; then
-        printf "${RED}%s${NC}\n" "${WRONG_VERSION}"
-        printf "${RED}%s${NC}\n" "${CANCEL_INSTALL}"
-        exit 1
-    fi
-else
-    printf "${RED}%s${NC}\n" "${WRONG_OS}"
-    printf "${RED}%s${NC}\n" "${CANCEL_INSTALL}"
-    exit
-fi
 
 if [[ -n "$(which nginx)" || -n "$(which mysql)" || -n "$(which mysqld)" || -n "$(which mariadb)" || -n "$(which docker)" ]]; then
     printf "${RED}%s${NC}\n" "${SERVICE_EXISTS}"
