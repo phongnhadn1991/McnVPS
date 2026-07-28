@@ -69,6 +69,18 @@ def _read_conf_val(path: str, key: str) -> str:
     return ""
 
 
+def _detect_php_version() -> str:
+    ver = _read_conf_val(C.FILE_INFO, "php1_version")
+    if ver:
+        return ver
+    import glob
+    socks = sorted(glob.glob("/run/php/php*-fpm.sock"), reverse=True)
+    if socks:
+        base = os.path.basename(socks[0])
+        return base.replace("php", "").replace("-fpm.sock", "")
+    return "8.4"
+
+
 # ──────────────────────────── Command handlers ────────────────────────────
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -127,7 +139,7 @@ async def on_menu_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         )
     elif feature == C.F_SVC:
         names = ["nginx", "mariadb"]
-        php_ver = _read_conf_val(C.FILE_INFO, "php1_version") or "8.2"
+        php_ver = _detect_php_version()
         names.append(f"php{php_ver}-fpm")
         statuses = await asyncio.to_thread(_services_status, names)
         items = menus.services_menu(statuses)

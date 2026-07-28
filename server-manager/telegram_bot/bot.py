@@ -48,7 +48,7 @@ async def _monitor(app: Application) -> None:
     disk_warned = False
     while True:
         try:
-            php_ver = H._read_conf_val(C.FILE_INFO, "php1_version") or "8.2"
+            php_ver = H._detect_php_version()
             names = ["nginx", "mariadb", f"php{php_ver}-fpm"]
             stat = await asyncio.to_thread(H._services_status, names)
             for n in names:

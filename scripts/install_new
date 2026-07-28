@@ -2976,6 +2976,7 @@ write_info() {
         echo "mysql_root_pwd=${SQL_ROOT_PASS}"
         echo "admin_email=${ADMIN_EMAIL}"
         echo "webserver=nginx"
+        echo "php1_version=${PHP_VERSION}"
         echo "lang=vi"
     } >>"${FILE_INFO}"
 
