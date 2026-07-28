@@ -34,6 +34,9 @@ wordpress_menu() {
         echo "${BLUE}8. Plugins SEO Config${NC}"
         echo "${BLUE}9. Plugins Cache Config${NC}"
         echo "${BLUE}10. WordPress Security${NC}"
+        echo "${BLUE}11. Maintenance Mode${NC}"
+        echo "${BLUE}12. Di chuyen wp-config.php${NC}"
+        echo "${BLUE}13. WebP Express${NC}"
         echo "${RED}----------------------------------${NC}"
         echo "${GREEN}0.${NC} $ICON_BACK ${GREEN}Quay lai menu chinh${NC}"
         read -rp "${BLUE}Chon mot tuy chon:${NC} " wordpress_menu_choice
@@ -49,6 +52,9 @@ wordpress_menu() {
             8) wp_seo_plugin_menu ;;
             9) wp_cache_plugin_menu ;;
             10) wordpress_sec_menu ;;
+            11) wp_maintenance_mode ;;
+            12) move_wp_config ;;
+            13) webp_express ;;
             0) main_menu ;;
             *) echo "${RED}$ICON_EXIT Lua chon khong hop le!${NC}"; sleep 1 ;;
         esac

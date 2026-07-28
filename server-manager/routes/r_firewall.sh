@@ -26,6 +26,7 @@ firewall_menu() {
         echo "${BLUE}3. Block Port${NC}"
         echo "${BLUE}4. Block IP${NC}"
         echo "${BLUE}5. Unblock IP${NC}"
+        echo "${BLUE}6. Cloudflare WAF Sync${NC}"
         echo "${RED}----------------------------------${NC}"
         echo "${GREEN}0.${NC} $ICON_BACK ${GREEN}Quay lai menu chinh${NC}"
         read -rp "${BLUE}Chon mot tuy chon:${NC} " firewall_menu_choice
@@ -36,6 +37,7 @@ firewall_menu() {
             3) fw_block_port ;;
             4) fw_block_ip ;;
             5) fw_unblock_ip ;;
+            6) cf_waf_menu ;;
             0) main_menu ;;
             *) echo "${RED}$ICON_EXIT Lua chon khong hop le!${NC}"; sleep 1 ;;
         esac

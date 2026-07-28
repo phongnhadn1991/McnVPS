@@ -282,7 +282,7 @@ add_website() {
     printf "\n"
     echo "--- SFTP ---"
     echo "SFTP Host        : ${IP_ADDRESS}"
-    echo "SFTP Port        : 22"
+    echo "SFTP Port        : $(detect_ssh_port)"
     echo "SFTP User        : $ROLLBACK_SFTP_USER"
     echo "SFTP Password    : $SFTP_PASS"
     echo "SFTP Directory   : /${ROLLBACK_DOMAIN_NAME}/public_html"
