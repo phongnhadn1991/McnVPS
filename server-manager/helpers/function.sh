@@ -127,14 +127,12 @@ gen_pass() {
 }
 
 get_all_ips() {
-    local ips
-    ips=$(ip -o addr show scope global | awk '{print $4}' | cut -d/ -f1)
     local public_ip
     public_ip=$(curl -s4 --max-time 5 https://checkip.amazonaws.com 2>/dev/null | tr -d '[:space:]')
-    if [[ -n "$public_ip" ]] && ! echo "$ips" | grep -q "$public_ip"; then
-        echo "$public_ip $ips"
+    if [[ -n "$public_ip" ]]; then
+        echo "$public_ip"
     else
-        echo "$ips"
+        ip -o addr show scope global | awk '{print $4}' | cut -d/ -f1
     fi
 }
 
