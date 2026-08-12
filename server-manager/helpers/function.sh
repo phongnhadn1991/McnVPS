@@ -127,11 +127,28 @@ gen_pass() {
 }
 
 get_all_ips() {
-    ip -o addr show scope global | awk '{print $4}' | cut -d/ -f1
+    local ips
+    ips=$(ip -o addr show scope global | awk '{print $4}' | cut -d/ -f1)
+    local public_ip
+    public_ip=$(curl -s4 --max-time 5 https://checkip.amazonaws.com 2>/dev/null | tr -d '[:space:]')
+    if [[ -n "$public_ip" ]] && ! echo "$ips" | grep -q "$public_ip"; then
+        echo "$public_ip $ips"
+    else
+        echo "$ips"
+    fi
 }
 
 get_first_ip() {
-    ip -o addr show scope global | awk '{print $4}' | cut -d/ -f1 | head -n1
+    local ip_addr
+    ip_addr=$(ip -o addr show scope global | awk '{print $4}' | cut -d/ -f1 | head -n1)
+    if [[ "$ip_addr" =~ ^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.) ]]; then
+        local public_ip
+        public_ip=$(curl -s4 --max-time 5 https://checkip.amazonaws.com 2>/dev/null | tr -d '[:space:]')
+        if [[ -n "$public_ip" ]]; then
+            ip_addr="$public_ip"
+        fi
+    fi
+    echo "$ip_addr"
 }
 
 detect_country() {

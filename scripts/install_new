@@ -150,8 +150,12 @@ get_main_ip() {
     local ip_addr
     ip_addr="$(ip route get to 8.8.8.8 2> /dev/null | grep -m 1 -o 'src [0-9.]*' | cut -d ' ' -f 2)"
 
-    if [ -z "$ip_addr" ]; then
-        ip_addr=$(_trim "$(curl "https://checkip.amazonaws.com")")
+    if [ -z "$ip_addr" ] || [[ "$ip_addr" =~ ^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.) ]]; then
+        local public_ip
+        public_ip=$(_trim "$(curl -s4 https://checkip.amazonaws.com)")
+        if [ -n "$public_ip" ]; then
+            ip_addr="$public_ip"
+        fi
     fi
 
     echo "$ip_addr"
