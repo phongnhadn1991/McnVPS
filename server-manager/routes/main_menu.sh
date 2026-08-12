@@ -59,9 +59,10 @@ main_menu() {
         echo "${BLUE}6. Quan ly Backup${NC}"
         echo "${BLUE}7. Quan ly Firewall${NC}"
         echo "${BLUE}8. VPS Tools${NC}"
-        echo "${BLUE}9. Telegram Bot${NC}"
+        echo "${BLUE}9. Deploy Application${NC}"
+        echo "${BLUE}10. Telegram Bot${NC}"
         echo "${RED}----------------------------------${NC}"
-        echo "${BLUE}10. Update Script${NC}"
+        echo "${BLUE}11. Update Script${NC}"
         echo "${RED}----------------------------------${NC}"
         echo "${RED}0.${NC} $ICON_EXIT ${RED}Thoat${NC}"
         read -rp "${BLUE}Chon mot tuy chon:${NC} " main_choice
@@ -75,8 +76,9 @@ main_menu() {
             6) backup_menu ;;
             7) firewall_menu ;;
             8) vps_tools_menu ;;
-            9) telegram_bot_menu ;;
-            10) update_menu ;;
+            9) app_deploy_menu ;;
+            10) telegram_bot_menu ;;
+            11) update_menu ;;
             0) clear_screen && exit 0 ;;
             *) echo "${RED}$ICON_EXIT Lua chon khong hop le!${NC}"; sleep 1; clear_screen ;;
         esac

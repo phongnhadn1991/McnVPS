@@ -154,30 +154,3 @@ install_yii() {
     composer create-project --prefer-dist yiisoft/yii2-app-basic yii
 }
 
-install_nodejs_use_nvm() {
-    echo "Installing Node.js using NVM..."
-    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
-    source /root/.bashrc
-
-    #  install the latest LTS version
-    nvm install --lts
-
-    # example, to install Node.js version 18
-    nvm install 18
-}
-
-install_nodejs_use_node_source() {
-    # https://nodesource.com/products/distributions
-    echo "Installing Node.js using NodeSource..."
-    curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
-    apt-get update
-    apt-get install -y nodejs npm
-}
-
-install_n8n() {
-    echo "Installing N8N..."
-}
-
-install_nextcloud() {
-    echo "Installing Nextcloud..."
-}
