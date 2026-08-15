@@ -112,6 +112,11 @@ PHP_MEM=${RAM_TOTAL}+${SWAP_TOTAL}
 RAM_MB=$(echo "scale=0;${RAM_TOTAL}/1024" | bc)
 
 IP_ADDRESS=$(ip -o addr show scope global | awk '{print $4}' | cut -d/ -f1 | head -n1)
+if [[ "$IP_ADDRESS" =~ ^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.) ]]; then
+    _public_ip=$(curl -s4 --max-time 5 https://checkip.amazonaws.com 2>/dev/null | tr -d '[:space:]')
+    [[ -n "$_public_ip" ]] && IP_ADDRESS="$_public_ip"
+    unset _public_ip
+fi
 
 CF_IPV4_LIST="${SCRIPTS_DATA_DIR}/cloudflare_ipv4.txt"
 CF_IPV6_LIST="${SCRIPTS_DATA_DIR}/cloudflare_ipv6.txt"

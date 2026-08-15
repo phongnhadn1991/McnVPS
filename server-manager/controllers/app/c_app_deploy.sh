@@ -326,11 +326,11 @@ deploy_new_app() {
     if [[ "$enable_webhook" == "y" ]]; then
         printf "\n"
         echo "--- AUTO DEPLOY ---"
-        echo "Webhook URL      : http://${IPADDRESS}:${WEBHOOK_PORT}/webhook/${domain}"
+        echo "Webhook URL      : http://${IP_ADDRESS}:${WEBHOOK_PORT}/webhook/${domain}"
         echo "Webhook Secret   : ${webhook_secret}"
         echo ""
         echo "Cau hinh tren GitHub: Settings > Webhooks > Add webhook"
-        echo "  Payload URL: http://${IPADDRESS}:${WEBHOOK_PORT}/webhook/${domain}"
+        echo "  Payload URL: http://${IP_ADDRESS}:${WEBHOOK_PORT}/webhook/${domain}"
         echo "  Content type: application/json"
         echo "  Secret: ${webhook_secret}"
     fi
@@ -767,7 +767,7 @@ manage_webhook_menu() {
 
                 setup_webhook_listener "$domain" "$repo" "$branch" "$secret" "$app_dir"
                 echo ""
-                echo "${GREEN}Webhook URL: http://${IPADDRESS}:${WEBHOOK_PORT}/webhook/${domain}${NC}"
+                echo "${GREEN}Webhook URL: http://${IP_ADDRESS}:${WEBHOOK_PORT}/webhook/${domain}${NC}"
                 echo "${GREEN}Secret: ${secret}${NC}"
                 press_enter_to_continue
                 ;;
