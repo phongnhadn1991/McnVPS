@@ -57,13 +57,17 @@ view_website_details() {
         echo "${GREEN}SFTP Directory           :${NC} ${RED}/${domain}/public_html${NC}"
     fi
 
-    if [[ "$website_source" == "wordpress" && -f "${base_dir}/public_html/wp-config.php" ]]; then
+    local wp_config_found=false
+    [[ -f "${base_dir}/public_html/wp-config.php" ]] && wp_config_found=true
+    [[ -f "${base_dir}/wp-config.php" ]] && wp_config_found=true
+
+    if [[ "$website_source" == "wordpress" && "$wp_config_found" == true ]]; then
         echo ""
         echo "${GREEN}--- WordPress Admin ---${NC}"
         local wp_token wp_admin_login wp_site_url wp_login_file wp_login_url
         wp_token=$(openssl rand -hex 16)
-        wp_admin_login=$(cd "${base_dir}/public_html" && wp --allow-root user list --role=administrator --fields=user_login --format=csv 2>/dev/null | tail -n +2 | head -1)
-        wp_site_url=$(cd "${base_dir}/public_html" && wp --allow-root option get siteurl 2>/dev/null)
+        wp_admin_login=$(wp --allow-root --path="${base_dir}/public_html" user list --role=administrator --fields=user_login --format=csv 2>/dev/null | tail -n +2 | head -1)
+        wp_site_url=$(wp --allow-root --path="${base_dir}/public_html" option get siteurl 2>/dev/null)
         wp_login_file="${base_dir}/public_html/mcn_login_${wp_token}.php"
 
         cat > "$wp_login_file" << 'PHPEOF'
