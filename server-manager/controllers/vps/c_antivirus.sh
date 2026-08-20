@@ -189,7 +189,8 @@ _scan_malware() {
     echo ""
     echo "${RED}----------------------------------${NC}"
     local infected_count
-    infected_count=$(grep -c "FOUND$" "$log_file" 2>/dev/null || echo "0")
+    infected_count=$(grep -c "FOUND$" "$log_file" 2>/dev/null)
+    infected_count=${infected_count:-0}
 
     if [[ "$infected_count" -gt 0 ]]; then
         echo ""
