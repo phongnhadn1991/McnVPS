@@ -139,8 +139,35 @@ _scan_malware() {
         press_enter_to_continue; return 0
     fi
 
-    if ! prompt_yes_no "Quet malware trong /home? (Co the mat vai phut)"; then
-        return 0
+    clear_screen
+    echo "${BLUE}========== Quet Malware ==========${NC}"
+    echo "${BLUE}1. Quet toan bo /home${NC}"
+    echo "${BLUE}2. Quet 1 website cu the${NC}"
+    echo "${RED}----------------------------------${NC}"
+    echo "${GREEN}0.${NC} $ICON_BACK ${GREEN}Quay lai${NC}"
+    read -rp "${BLUE}Chon mot tuy chon:${NC} " scan_choice
+
+    local scan_path=""
+    case "$scan_choice" in
+        1) scan_path="/home" ;;
+        2)
+            local domain base_dir owner
+            msg "$ICON_GLOBE Chon Website muon quet"
+            run_prompt_or_exit prompt_select_website domain "antivirus_menu"
+            # shellcheck disable=SC1090
+            source "${WEB_DATA_DIR}/${domain}/.settings.conf" || {
+                msg "$ICON_EXIT Khong the load file cau hinh: ${domain}"
+                press_enter_to_continue; return 0
+            }
+            scan_path="${base_dir}/public_html"
+            ;;
+        0) return 0 ;;
+        *) msg "$ICON_EXIT Lua chon khong hop le"; press_enter_to_continue; return 0 ;;
+    esac
+
+    if [[ -z "$scan_path" || ! -d "$scan_path" ]]; then
+        msg "$ICON_EXIT Thu muc khong ton tai: ${scan_path}"
+        press_enter_to_continue; return 0
     fi
 
     msg "$ICON_TOOL Dang cap nhat virus database..."
@@ -148,9 +175,9 @@ _scan_malware() {
     freshclam 2>/dev/null
     systemctl start clamav-freshclam 2>/dev/null
 
-    msg "$ICON_TOOL Dang quet malware..."
+    msg "$ICON_TOOL Dang quet malware tai: ${scan_path}"
     echo ""
-    clamscan --infected --recursive /home 2>/dev/null
+    clamscan --infected --recursive "$scan_path" 2>/dev/null
     echo ""
     msg "$ICON_SUCCESS Quet hoan tat!" 'green'
 
