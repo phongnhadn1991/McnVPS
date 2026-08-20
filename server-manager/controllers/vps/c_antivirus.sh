@@ -175,11 +175,34 @@ _scan_malware() {
     freshclam 2>/dev/null
     systemctl start clamav-freshclam 2>/dev/null
 
-    msg "$ICON_TOOL Dang quet malware tai: ${scan_path}"
+    local total_files
+    total_files=$(find "$scan_path" -type f 2>/dev/null | wc -l)
     echo ""
-    clamscan --infected --recursive "$scan_path" 2>/dev/null
+    msg "$ICON_TOOL Dang quet ${total_files} files tai: ${scan_path}"
+    echo "${GREEN}Moi file dang quet se hien ben duoi. File nhiem virus danh dau FOUND.${NC}"
+    echo "${RED}----------------------------------${NC}"
     echo ""
-    msg "$ICON_SUCCESS Quet hoan tat!" 'green'
+
+    local log_file="/tmp/clamscan_$(date +%Y%m%d_%H%M%S).log"
+    clamscan --infected --recursive --verbose "$scan_path" 2>/dev/null | tee "$log_file"
+
+    echo ""
+    echo "${RED}----------------------------------${NC}"
+    local infected_count
+    infected_count=$(grep -c "FOUND$" "$log_file" 2>/dev/null || echo "0")
+
+    if [[ "$infected_count" -gt 0 ]]; then
+        echo ""
+        msg "$ICON_WARNING Phat hien ${infected_count} file nhiem virus!" 'red'
+        echo "${RED}Danh sach file nhiem:${NC}"
+        grep "FOUND$" "$log_file"
+        echo ""
+        echo "${GREEN}Log day du tai: ${log_file}${NC}"
+        echo "${RED}Xem xet xoa file bang tay hoac chay lai voi --remove${NC}"
+    else
+        msg "$ICON_SUCCESS Khong phat hien malware!" 'green'
+        rm -f "$log_file"
+    fi
 
     press_enter_to_continue
 }
