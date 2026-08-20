@@ -65,7 +65,14 @@ view_website_details() {
         echo ""
         echo "${GREEN}--- WordPress Admin ---${NC}"
         local wp_token wp_admin_login wp_site_url wp_login_file wp_login_url
+        local was_locked=false
+        if lsattr "${base_dir}/public_html/wp-load.php" 2>/dev/null | awk '{print $1}' | grep -q 'i'; then
+            was_locked=true
+            chattr -i "${base_dir}/public_html" 2>/dev/null
+        fi
+
         # Xoa file login cu truoc khi tao moi
+        find "${base_dir}/public_html" -maxdepth 1 -name "mcn_login_*.php" -exec chattr -i {} \; 2>/dev/null
         find "${base_dir}/public_html" -maxdepth 1 -name "mcn_login_*.php" -type f -delete 2>/dev/null
 
         wp_token=$(openssl rand -hex 16)
@@ -89,6 +96,10 @@ PHPEOF
 
         chown "${owner}:${owner}" "$wp_login_file" 2>/dev/null
         chmod 644 "$wp_login_file"
+
+        if [[ "$was_locked" == true ]]; then
+            chattr +i "${base_dir}/public_html" 2>/dev/null
+        fi
 
         wp_login_url="${wp_site_url}/mcn_login_${wp_token}.php"
 
