@@ -22,6 +22,10 @@ wordpress_sec_menu() {
         echo "${BLUE}6. Block truy cap xmlrpc.php${NC}"
         echo "${BLUE}7. Block scan author${NC}"
         echo "${BLUE}8. htpasswd bao ve wp-login${NC}"
+        echo "${BLUE}9. Block comment spam (nginx)${NC}"
+        echo "${BLUE}10. Block REST API tao user${NC}"
+        echo "${BLUE}11. Kiem tra & xoa admin la${NC}"
+        echo "${BLUE}12. Reset mat khau tat ca admin${NC}"
         echo "${RED}----------------------------------${NC}"
         echo "${GREEN}0.${NC} $ICON_BACK ${GREEN}Quay lai menu chinh${NC}"
         read -rp "${BLUE}Chon mot tuy chon:${NC} " wordpress_sec_menu_choice
@@ -35,6 +39,10 @@ wordpress_sec_menu() {
             6) block_xmlrpc ;;
             7) block_author_scan ;;
             8) htpasswd_wp_admin ;;
+            9) block_wp_comments ;;
+            10) block_wp_rest_users ;;
+            11) wp_audit_users ;;
+            12) wp_reset_all_admin_passwords ;;
             0) wordpress_menu ; return 0 ;;
             *) echo "${RED}$ICON_EXIT Lua chon khong hop le!${NC}"; sleep 1 ;;
         esac
