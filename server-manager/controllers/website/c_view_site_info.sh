@@ -65,17 +65,22 @@ view_website_details() {
         echo ""
         echo "${GREEN}--- WordPress Admin ---${NC}"
         local wp_token wp_admin_login wp_site_url wp_login_file wp_login_url
+        # Xoa file login cu truoc khi tao moi
+        find "${base_dir}/public_html" -maxdepth 1 -name "mcn_login_*.php" -type f -delete 2>/dev/null
+
         wp_token=$(openssl rand -hex 16)
         wp_admin_login=$(wp --allow-root --path="${base_dir}/public_html" user list --role=administrator --fields=user_login --format=csv 2>/dev/null | tail -n +2 | head -1)
         wp_site_url=$(wp --allow-root --path="${base_dir}/public_html" option get siteurl 2>/dev/null)
         wp_login_file="${base_dir}/public_html/mcn_login_${wp_token}.php"
 
-        cat > "$wp_login_file" << 'PHPEOF'
+        cat > "$wp_login_file" << PHPEOF
 <?php
+// Auto-expire after 5 minutes
+if (filemtime(__FILE__) < time() - 300) { unlink(__FILE__); die('Link het han.'); }
 require_once dirname(__FILE__).'/wp-load.php';
-$users = get_users(['role'=>'administrator','number'=>1]);
-if (!empty($users)) {
-    wp_set_auth_cookie($users[0]->ID, true);
+\$users = get_users(['role'=>'administrator','number'=>1]);
+if (!empty(\$users)) {
+    wp_set_auth_cookie(\$users[0]->ID, true);
 }
 unlink(__FILE__);
 wp_redirect(admin_url());
