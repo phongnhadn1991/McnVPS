@@ -209,32 +209,40 @@ migrate_website() {
         press_enter_to_continue; return 0
     fi
 
+    # Lay thong tin DB va SSL cua tat ca site trong 1 lan SSH
+    local site_details
+    if [[ "$MIGRATE_SERVER_VERSION" == "mcnscript" ]]; then
+        site_details=$(_migrate_ssh "
+            while IFS= read -r site; do
+                [[ -z \"\$site\" ]] && continue
+                db=\$(grep '^db_name=' /home/*/\${site}/.settings.conf 2>/dev/null | head -1 | cut -d'=' -f2)
+                ssl='No'; [[ -d \"/etc/nginx/ssl/\${site}\" ]] && ssl='Yes'
+                echo \"\${site}|\${db:-none}|\${ssl}\"
+            done <<< '$remote_sites'
+        ")
+    else
+        site_details=$(_migrate_ssh "
+            while IFS= read -r site; do
+                [[ -z \"\$site\" ]] && continue
+                wp_conf=\$(find /home/ -path \"*/\${site}/public_html/wp-config.php\" -o -path \"*/\${site}/wp-config.php\" 2>/dev/null | head -1)
+                db='none'
+                [[ -n \"\$wp_conf\" ]] && db=\$(grep DB_NAME \"\$wp_conf\" 2>/dev/null | cut -d\"'\" -f4)
+                ssl='No'; [[ -d \"/etc/nginx/ssl/\${site}\" ]] && ssl='Yes'
+                echo \"\${site}|\${db:-none}|\${ssl}\"
+            done <<< '$remote_sites'
+        ")
+    fi
+
     echo ""
     echo "${GREEN}Danh sach website tren server cu:${NC}"
     local site_list=()
     local i=1
-    while IFS= read -r site; do
+    while IFS='|' read -r site site_db site_ssl; do
         [[ -z "$site" ]] && continue
         site_list+=("$site")
-
-        local site_db="none" site_ssl="No"
-
-        if [[ "$MIGRATE_SERVER_VERSION" == "mcnscript" ]]; then
-            # MCN: doc .settings.conf
-            site_db=$(_migrate_ssh "grep '^db_name=' /home/*/${site}/.settings.conf 2>/dev/null | head -1 | cut -d'=' -f2" 2>/dev/null)
-            site_ssl=$(_migrate_ssh "[[ -d '/etc/nginx/ssl/${site}' ]] && echo 'Yes' || echo 'No'" 2>/dev/null)
-        else
-            # Ver cu: doc wp-config.php
-            site_db=$(_migrate_ssh "
-                wp_conf=\$(find /home/ -path \"*/${site}/public_html/wp-config.php\" -o -path \"*/${site}/wp-config.php\" 2>/dev/null | head -1)
-                [[ -n \"\$wp_conf\" ]] && grep DB_NAME \"\$wp_conf\" 2>/dev/null | cut -d\"'\" -f4
-            " 2>/dev/null)
-            site_ssl=$(_migrate_ssh "[[ -d '/etc/nginx/ssl/${site}' ]] && echo 'Yes' || echo 'No'" 2>/dev/null)
-        fi
-
         printf "  %d) %-40s DB: %-15s SSL: %s\n" "$i" "$site" "${site_db:-none}" "${site_ssl:-No}"
         ((i++))
-    done <<< "$remote_sites"
+    done <<< "$site_details"
     echo "  ${RED}0) Huy thao tac${NC}"
     echo ""
 
