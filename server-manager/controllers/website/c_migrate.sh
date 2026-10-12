@@ -76,47 +76,78 @@ migrate_website() {
     MIGRATE_SSH_PORT="$ssh_port"
 
     # SSH Key setup
-    echo ""
-    echo "${BLUE}== Thiet lap SSH Key ==${NC}"
-    echo "  1) Nhap duong dan SSH Key co san"
-    echo "  2) Tu dong tao SSH Key moi"
-    echo "  ${RED}0) Huy${NC}"
-    read -rp "Chon: " key_choice
+    local migrate_key="/root/.ssh/id_rsa_migrate"
 
-    case "$key_choice" in
-        1)
-            read -rp "Duong dan SSH Key: " ssh_key
-            MIGRATE_SSH_KEY="${ssh_key:-/root/.ssh/id_rsa}"
-            ;;
-        2)
-            local migrate_key="/root/.ssh/id_rsa_migrate"
-            if [[ -f "$migrate_key" ]]; then
-                msg "$ICON_CHECK SSH Key migrate da ton tai: ${migrate_key}" "green"
-            else
+    # Kiem tra key migrate da ton tai va ket noi duoc khong
+    if [[ -f "$migrate_key" ]]; then
+        MIGRATE_SSH_KEY="$migrate_key"
+        MIGRATE_KEY_CREATED=true
+        msg "$ICON_TOOL Dang thu ket noi bang key migrate cu..."
+        if _migrate_ssh "echo OK" &>/dev/null; then
+            msg "$ICON_CHECK Ket noi thanh cong bang key migrate cu!" "green"
+        else
+            msg "$ICON_WARNING Key migrate cu khong ket noi duoc. Chon cach khac:"
+            echo ""
+            echo "  1) Nhap duong dan SSH Key khac"
+            echo "  2) Hien lai Public Key de add vao server cu"
+            echo "  ${RED}0) Huy${NC}"
+            read -rp "Chon: " key_retry
+
+            case "$key_retry" in
+                1)
+                    read -rp "Duong dan SSH Key: " ssh_key
+                    MIGRATE_SSH_KEY="${ssh_key:-/root/.ssh/id_rsa}"
+                    MIGRATE_KEY_CREATED=false
+                    ;;
+                2)
+                    echo ""
+                    echo "${GREEN}========== PUBLIC KEY ==========${NC}"
+                    cat "${migrate_key}.pub"
+                    echo "${GREEN}================================${NC}"
+                    echo ""
+                    echo "${BLUE}Hay SSH vao server cu va chay lenh sau de add key:${NC}"
+                    echo "  mkdir -p ~/.ssh && echo '$(cat "${migrate_key}.pub")' >> ~/.ssh/authorized_keys"
+                    echo ""
+                    read -rp "Nhan Enter sau khi da add key vao server cu... "
+                    ;;
+                0) return 0 ;;
+                *) msg "$ICON_EXIT Lua chon khong hop le!"; press_enter_to_continue; return 0 ;;
+            esac
+        fi
+    else
+        echo ""
+        echo "${BLUE}== Thiet lap SSH Key ==${NC}"
+        echo "  1) Nhap duong dan SSH Key co san"
+        echo "  2) Tu dong tao SSH Key moi"
+        echo "  ${RED}0) Huy${NC}"
+        read -rp "Chon: " key_choice
+
+        case "$key_choice" in
+            1)
+                read -rp "Duong dan SSH Key: " ssh_key
+                MIGRATE_SSH_KEY="${ssh_key:-/root/.ssh/id_rsa}"
+                ;;
+            2)
                 msg "$ICON_TOOL Dang tao SSH Key moi..."
                 ssh-keygen -t rsa -b 4096 -N "" -f "$migrate_key" -q
                 msg "$ICON_CHECK Da tao SSH Key: ${migrate_key}" "green"
-            fi
-            MIGRATE_KEY_CREATED=true
-            MIGRATE_SSH_KEY="$migrate_key"
+                MIGRATE_KEY_CREATED=true
+                MIGRATE_SSH_KEY="$migrate_key"
 
-            echo ""
-            echo "${GREEN}========== PUBLIC KEY ==========${NC}"
-            echo ""
-            cat "${migrate_key}.pub"
-            echo ""
-            echo "${GREEN}================================${NC}"
-            echo ""
-            echo "${BLUE}Hay SSH vao server cu va chay lenh sau de add key:${NC}"
-            echo ""
-            echo "  mkdir -p ~/.ssh && echo '$(cat "${migrate_key}.pub")' >> ~/.ssh/authorized_keys"
-            echo ""
-            echo ""
-            read -rp "Nhan Enter sau khi da add key vao server cu... "
-            ;;
-        0) return 0 ;;
-        *) msg "$ICON_EXIT Lua chon khong hop le!"; press_enter_to_continue; return 0 ;;
-    esac
+                echo ""
+                echo "${GREEN}========== PUBLIC KEY ==========${NC}"
+                cat "${migrate_key}.pub"
+                echo "${GREEN}================================${NC}"
+                echo ""
+                echo "${BLUE}Hay SSH vao server cu va chay lenh sau de add key:${NC}"
+                echo "  mkdir -p ~/.ssh && echo '$(cat "${migrate_key}.pub")' >> ~/.ssh/authorized_keys"
+                echo ""
+                read -rp "Nhan Enter sau khi da add key vao server cu... "
+                ;;
+            0) return 0 ;;
+            *) msg "$ICON_EXIT Lua chon khong hop le!"; press_enter_to_continue; return 0 ;;
+        esac
+    fi
 
     # Test connection
     msg "$ICON_TOOL Dang ket noi toi server cu..."
