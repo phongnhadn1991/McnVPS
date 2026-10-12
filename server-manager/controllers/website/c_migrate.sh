@@ -107,11 +107,10 @@ migrate_website() {
             echo ""
             echo "${GREEN}================================${NC}"
             echo ""
-            echo "${BLUE}Hay chay lenh sau tren LOCAL de add key vao server cu:${NC}"
+            echo "${BLUE}Hay SSH vao server cu va chay lenh sau de add key:${NC}"
             echo ""
-            echo "  ssh root@${ssh_ip} -p ${ssh_port} \"mkdir -p ~/.ssh && echo '$(cat "${migrate_key}.pub")' >> ~/.ssh/authorized_keys\""
+            echo "  mkdir -p ~/.ssh && echo '$(cat "${migrate_key}.pub")' >> ~/.ssh/authorized_keys"
             echo ""
-            echo "${RED}Hoac copy PUBLIC KEY phia tren va paste vao file ~/.ssh/authorized_keys tren server cu.${NC}"
             echo ""
             read -rp "Nhan Enter sau khi da add key vao server cu... "
             ;;
@@ -155,7 +154,7 @@ migrate_website() {
     local server_overview
     server_overview=$(_migrate_ssh "
         # Count sites
-        site_count=\$(find /home/*/public_html -maxdepth 1 \\( -name 'wp-config.php' -o -name 'index.php' \\) 2>/dev/null | sed 's|/public_html/.*||' | sort -u | wc -l)
+        site_count=\$(find /home/*/*/public_html -maxdepth 1 \\( -name 'wp-config.php' -o -name 'index.php' -o -name 'index.html' \\) 2>/dev/null | sed 's|/public_html/.*||' | sort -u | wc -l)
         echo \"SITE_COUNT=\${site_count}\"
 
         # Count databases
@@ -171,16 +170,15 @@ migrate_website() {
         echo \"DISK_USED=\${disk_used}\"
 
         # OS info
-        os_info=\$(grep PRETTY_NAME /etc/os-release 2>/dev/null | cut -d'\"' -f2)
-        echo \"OS_INFO=\${os_info}\"
+        grep PRETTY_NAME /etc/os-release 2>/dev/null | cut -d'\"' -f2
     ")
 
-    local site_count db_count ssl_count disk_used os_info
-    eval "$(echo "$server_overview" | grep '^SITE_COUNT=')"
-    eval "$(echo "$server_overview" | grep '^DB_COUNT=')"
-    eval "$(echo "$server_overview" | grep '^SSL_COUNT=')"
-    eval "$(echo "$server_overview" | grep '^DISK_USED=')"
-    eval "$(echo "$server_overview" | grep '^OS_INFO=')"
+    local SITE_COUNT DB_COUNT SSL_COUNT DISK_USED OS_INFO
+    SITE_COUNT=$(echo "$server_overview" | grep '^SITE_COUNT=' | cut -d'=' -f2)
+    DB_COUNT=$(echo "$server_overview" | grep '^DB_COUNT=' | cut -d'=' -f2)
+    SSL_COUNT=$(echo "$server_overview" | grep '^SSL_COUNT=' | cut -d'=' -f2)
+    DISK_USED=$(echo "$server_overview" | grep '^DISK_USED=' | cut -d'=' -f2)
+    OS_INFO=$(echo "$server_overview" | grep -v '^[A-Z_]*=' | head -1)
 
     echo ""
     echo "${GREEN}========== THONG TIN SERVER CU ==========${NC}"
@@ -200,10 +198,10 @@ migrate_website() {
 
     if [[ "$MIGRATE_SERVER_VERSION" == "mcnscript" ]]; then
         # MCN Script: doc tu .settings.conf
-        remote_sites=$(_migrate_ssh "find /home/ -name '.settings.conf' -path '*/public_html/../.settings.conf' 2>/dev/null | while read -r conf; do dirname \"\$conf\" | xargs basename; done | sort -u")
+        remote_sites=$(_migrate_ssh "find /home/*/*/ -maxdepth 1 -name '.settings.conf' 2>/dev/null | while read -r conf; do basename \$(dirname \"\$conf\"); done | sort -u")
     else
-        # Ver cu (hostvn/unknown): scan public_html
-        remote_sites=$(_migrate_ssh "find /home/*/public_html -maxdepth 1 \\( -name 'wp-config.php' -o -name 'index.php' \\) 2>/dev/null | sed 's|/public_html/.*||' | sort -u | while read -r dir; do basename \"\$dir\"; done | sort -u")
+        # Ver cu (hostvn/unknown): scan /home/{owner}/{domain}/public_html
+        remote_sites=$(_migrate_ssh "find /home/*/*/public_html -maxdepth 1 \\( -name 'wp-config.php' -o -name 'index.php' -o -name 'index.html' \\) 2>/dev/null | sed 's|/public_html/.*||' | sort -u | while read -r dir; do basename \"\$dir\"; done | sort -u")
     fi
 
     if [[ -z "$remote_sites" ]]; then
