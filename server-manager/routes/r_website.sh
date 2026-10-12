@@ -28,15 +28,15 @@ website_menu() {
     while true; do
         clear_screen
         echo "${BLUE}========== QUAN LY Website ==========${NC}"
-        echo "${BLUE}1. Them Website${NC}"
-        echo "${BLUE}2. Xoa Website${NC}"
-        echo "${BLUE}3. Clear Opcache${NC}"
-        echo "${BLUE}4. Thay doi ten mien${NC}"
-        echo "${BLUE}5. Clone Website${NC}"
-        echo "${BLUE}6. Ky SSL${NC}"
-        echo "${BLUE}7. Alias/Redirect Domain${NC}"
-        echo "${BLUE}8. Quan ly Nginx Cache${NC}"
-        echo "${BLUE}9. Danh Sach Website${NC}"
+        echo "${BLUE}1. Danh Sach Website${NC}"
+        echo "${BLUE}2. Them Website${NC}"
+        echo "${BLUE}3. Xoa Website${NC}"
+        echo "${BLUE}4. Clear Opcache${NC}"
+        echo "${BLUE}5. Thay doi ten mien${NC}"
+        echo "${BLUE}6. Clone Website${NC}"
+        echo "${BLUE}7. Ky SSL${NC}"
+        echo "${BLUE}8. Alias/Redirect Domain${NC}"
+        echo "${BLUE}9. Quan ly Nginx Cache${NC}"
         echo "${BLUE}10. Cau hinh PHP${NC}"
         echo "${BLUE}11. Doi thong tin Database${NC}"
         echo "${BLUE}12. Phan quyen website${NC}"
@@ -50,15 +50,15 @@ website_menu() {
         read -rp "${BLUE}Chon mot tuy chon:${NC} " website_choice
 
         case "$website_choice" in
-            1) add_website ;;
-            2) delete_site ;;
-            3) clear_php_opcache ;;
-            4) change_domain_website ;;
-            5) clone_website ;;
-            6) sign_ssl_free ;;
-            7) website_alias_redirect_menu ;;
-            8) nginx_cache_menu ;;
-            9) list_all_website ;;
+            1) list_all_website ;;
+            2) add_website ;;
+            3) delete_site ;;
+            4) clear_php_opcache ;;
+            5) change_domain_website ;;
+            6) clone_website ;;
+            7) sign_ssl_free ;;
+            8) website_alias_redirect_menu ;;
+            9) nginx_cache_menu ;;
             10) website_php_conf_menu ;;
             11) change_db_info ;;
             12) fix_website_permission ;;
