@@ -64,35 +64,147 @@ migrate_website() {
 
     # SSH info server cu
     local ssh_ip ssh_port ssh_key
+    local MIGRATE_KEY_CREATED=false
+
     read -rp "IP server cu: " ssh_ip
     [[ -z "$ssh_ip" ]] && { msg "$ICON_EXIT IP khong duoc de trong!"; press_enter_to_continue; return 0; }
 
     read -rp "SSH Port (mac dinh 22): " ssh_port
     ssh_port="${ssh_port:-22}"
 
-    read -rp "Duong dan SSH Key (hoac Enter de dung password): " ssh_key
-
     MIGRATE_SSH_IP="$ssh_ip"
     MIGRATE_SSH_PORT="$ssh_port"
-    MIGRATE_SSH_KEY="${ssh_key:-/root/.ssh/id_rsa}"
+
+    # SSH Key setup
+    echo ""
+    echo "${BLUE}== Thiet lap SSH Key ==${NC}"
+    echo "  1) Nhap duong dan SSH Key co san"
+    echo "  2) Tu dong tao SSH Key moi"
+    echo "  ${RED}0) Huy${NC}"
+    read -rp "Chon: " key_choice
+
+    case "$key_choice" in
+        1)
+            read -rp "Duong dan SSH Key: " ssh_key
+            MIGRATE_SSH_KEY="${ssh_key:-/root/.ssh/id_rsa}"
+            ;;
+        2)
+            local migrate_key="/root/.ssh/id_rsa_migrate"
+            if [[ -f "$migrate_key" ]]; then
+                msg "$ICON_CHECK SSH Key migrate da ton tai: ${migrate_key}" "green"
+            else
+                msg "$ICON_TOOL Dang tao SSH Key moi..."
+                ssh-keygen -t rsa -b 4096 -N "" -f "$migrate_key" -q
+                msg "$ICON_CHECK Da tao SSH Key: ${migrate_key}" "green"
+            fi
+            MIGRATE_KEY_CREATED=true
+            MIGRATE_SSH_KEY="$migrate_key"
+
+            echo ""
+            echo "${GREEN}========== PUBLIC KEY ==========${NC}"
+            echo ""
+            cat "${migrate_key}.pub"
+            echo ""
+            echo "${GREEN}================================${NC}"
+            echo ""
+            echo "${BLUE}Hay chay lenh sau tren LOCAL de add key vao server cu:${NC}"
+            echo ""
+            echo "  ssh root@${ssh_ip} -p ${ssh_port} \"mkdir -p ~/.ssh && echo '$(cat "${migrate_key}.pub")' >> ~/.ssh/authorized_keys\""
+            echo ""
+            echo "${RED}Hoac copy PUBLIC KEY phia tren va paste vao file ~/.ssh/authorized_keys tren server cu.${NC}"
+            echo ""
+            read -rp "Nhan Enter sau khi da add key vao server cu... "
+            ;;
+        0) return 0 ;;
+        *) msg "$ICON_EXIT Lua chon khong hop le!"; press_enter_to_continue; return 0 ;;
+    esac
 
     # Test connection
     msg "$ICON_TOOL Dang ket noi toi server cu..."
     if ! _migrate_ssh "echo OK" &>/dev/null; then
-        if [[ -z "$ssh_key" ]]; then
-            msg "$ICON_EXIT Khong the ket noi! Hay thu dung SSH Key."
-        else
-            msg "$ICON_EXIT Khong the ket noi! Kiem tra lai IP, port va SSH key."
-        fi
+        msg "$ICON_EXIT Khong the ket noi! Kiem tra lai IP, port va SSH key."
         press_enter_to_continue; return 0
     fi
     msg "$ICON_CHECK Ket noi thanh cong!" "green"
 
-    # List sites on old server
+    # Detect server version
     echo ""
-    msg "$ICON_TOOL Dang tim cac website tren server cu..."
+    msg "$ICON_TOOL Dang kiem tra phien ban server cu..."
+    local MIGRATE_SERVER_VERSION="unknown"
+    local version_check
+    version_check=$(_migrate_ssh "
+        if [[ -f /etc/mcnvps.lock ]]; then
+            echo 'mcnscript'
+        elif [[ -f /etc/hostvn.lock ]]; then
+            echo 'hostvn'
+        else
+            echo 'unknown'
+        fi
+    ")
+    MIGRATE_SERVER_VERSION="$version_check"
+
+    case "$MIGRATE_SERVER_VERSION" in
+        mcnscript) msg "$ICON_CHECK Server cu: MCN Script" "green" ;;
+        hostvn)    msg "$ICON_CHECK Server cu: HostVN Script (ver cu)" "green" ;;
+        *)         msg "$ICON_WARNING Server cu: Khong xac dinh duoc phien ban" ;;
+    esac
+
+    # Server overview
+    echo ""
+    msg "$ICON_TOOL Dang quet thong tin server cu..."
+    local server_overview
+    server_overview=$(_migrate_ssh "
+        # Count sites
+        site_count=\$(find /home/*/public_html -maxdepth 1 \\( -name 'wp-config.php' -o -name 'index.php' \\) 2>/dev/null | sed 's|/public_html/.*||' | sort -u | wc -l)
+        echo \"SITE_COUNT=\${site_count}\"
+
+        # Count databases
+        db_count=\$(mysql -N -e 'SHOW DATABASES' 2>/dev/null | grep -vcE '^(information_schema|performance_schema|mysql|sys)\$' || echo 0)
+        echo \"DB_COUNT=\${db_count}\"
+
+        # Count SSL
+        ssl_count=\$(find /etc/nginx/ssl/ -maxdepth 1 -type d 2>/dev/null | grep -v '^/etc/nginx/ssl/\$' | grep -vc 'default' || echo 0)
+        echo \"SSL_COUNT=\${ssl_count}\"
+
+        # Disk usage
+        disk_used=\$(du -sh /home/ 2>/dev/null | awk '{print \$1}')
+        echo \"DISK_USED=\${disk_used}\"
+
+        # OS info
+        os_info=\$(grep PRETTY_NAME /etc/os-release 2>/dev/null | cut -d'\"' -f2)
+        echo \"OS_INFO=\${os_info}\"
+    ")
+
+    local site_count db_count ssl_count disk_used os_info
+    eval "$(echo "$server_overview" | grep '^SITE_COUNT=')"
+    eval "$(echo "$server_overview" | grep '^DB_COUNT=')"
+    eval "$(echo "$server_overview" | grep '^SSL_COUNT=')"
+    eval "$(echo "$server_overview" | grep '^DISK_USED=')"
+    eval "$(echo "$server_overview" | grep '^OS_INFO=')"
+
+    echo ""
+    echo "${GREEN}========== THONG TIN SERVER CU ==========${NC}"
+    echo "  IP          : ${ssh_ip}"
+    echo "  OS          : ${OS_INFO}"
+    echo "  Phien ban   : ${MIGRATE_SERVER_VERSION}"
+    echo "  So website  : ${SITE_COUNT}"
+    echo "  So database : ${DB_COUNT}"
+    echo "  So SSL cert : ${SSL_COUNT}"
+    echo "  Dung luong  : ${DISK_USED}"
+    echo "${GREEN}=========================================${NC}"
+    echo ""
+
+    # List sites on old server
+    msg "$ICON_TOOL Dang liet ke cac website..."
     local remote_sites
-    remote_sites=$(_migrate_ssh "find /home/*/public_html -name 'wp-config.php' -o -name 'index.php' 2>/dev/null | sed 's|/public_html/.*||' | sort -u | while read -r dir; do basename \"\$dir\"; done | sort -u")
+
+    if [[ "$MIGRATE_SERVER_VERSION" == "mcnscript" ]]; then
+        # MCN Script: doc tu .settings.conf
+        remote_sites=$(_migrate_ssh "find /home/ -name '.settings.conf' -path '*/public_html/../.settings.conf' 2>/dev/null | while read -r conf; do dirname \"\$conf\" | xargs basename; done | sort -u")
+    else
+        # Ver cu (hostvn/unknown): scan public_html
+        remote_sites=$(_migrate_ssh "find /home/*/public_html -maxdepth 1 \\( -name 'wp-config.php' -o -name 'index.php' \\) 2>/dev/null | sed 's|/public_html/.*||' | sort -u | while read -r dir; do basename \"\$dir\"; done | sort -u")
+    fi
 
     if [[ -z "$remote_sites" ]]; then
         msg "$ICON_EXIT Khong tim thay website nao tren server cu!"
@@ -100,13 +212,29 @@ migrate_website() {
     fi
 
     echo ""
-    echo "${GREEN}Cac website tim thay tren server cu:${NC}"
+    echo "${GREEN}Danh sach website tren server cu:${NC}"
     local site_list=()
     local i=1
     while IFS= read -r site; do
         [[ -z "$site" ]] && continue
         site_list+=("$site")
-        echo "  ${i}) ${site}"
+
+        local site_db="none" site_ssl="No"
+
+        if [[ "$MIGRATE_SERVER_VERSION" == "mcnscript" ]]; then
+            # MCN: doc .settings.conf
+            site_db=$(_migrate_ssh "grep '^db_name=' /home/*/${site}/.settings.conf 2>/dev/null | head -1 | cut -d'=' -f2" 2>/dev/null)
+            site_ssl=$(_migrate_ssh "[[ -d '/etc/nginx/ssl/${site}' ]] && echo 'Yes' || echo 'No'" 2>/dev/null)
+        else
+            # Ver cu: doc wp-config.php
+            site_db=$(_migrate_ssh "
+                wp_conf=\$(find /home/ -path \"*/${site}/public_html/wp-config.php\" -o -path \"*/${site}/wp-config.php\" 2>/dev/null | head -1)
+                [[ -n \"\$wp_conf\" ]] && grep DB_NAME \"\$wp_conf\" 2>/dev/null | cut -d\"'\" -f4
+            " 2>/dev/null)
+            site_ssl=$(_migrate_ssh "[[ -d '/etc/nginx/ssl/${site}' ]] && echo 'Yes' || echo 'No'" 2>/dev/null)
+        fi
+
+        printf "  %d) %-40s DB: %-15s SSL: %s\n" "$i" "$site" "${site_db:-none}" "${site_ssl:-No}"
         ((i++))
     done <<< "$remote_sites"
     echo "  ${RED}0) Huy thao tac${NC}"
@@ -179,6 +307,35 @@ migrate_website() {
     echo ""
     echo "Buoc tiep theo: Tro DNS cua cac domain ve IP ${IP_ADDRESS}"
     echo ""
+
+    # Cleanup SSH key
+    if [[ "$MIGRATE_KEY_CREATED" == true ]]; then
+        echo "${BLUE}== Quan ly SSH Key Migrate ==${NC}"
+        echo "  1) Huy SSH Key (xoa key tren server nay + server cu)"
+        echo "  2) Giu lai SSH Key (dung cho lan migrate tiep theo)"
+        read -rp "Chon: " cleanup_choice
+
+        case "$cleanup_choice" in
+            1)
+                local migrate_key="/root/.ssh/id_rsa_migrate"
+                local pub_key
+                pub_key=$(cat "${migrate_key}.pub" 2>/dev/null)
+
+                # Xoa public key tren server cu
+                if [[ -n "$pub_key" ]]; then
+                    _migrate_ssh "sed -i '\|${pub_key}|d' ~/.ssh/authorized_keys" 2>/dev/null
+                    msg "$ICON_CHECK Da xoa public key tren server cu" "green"
+                fi
+
+                # Xoa key tren server moi
+                rm -f "${migrate_key}" "${migrate_key}.pub"
+                msg "$ICON_CHECK Da xoa SSH Key tren server nay" "green"
+                ;;
+            2)
+                msg "$ICON_CHECK Giu lai SSH Key tai /root/.ssh/id_rsa_migrate" "green"
+                ;;
+        esac
+    fi
 
     press_enter_to_continue
 }
